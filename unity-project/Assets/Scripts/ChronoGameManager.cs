@@ -197,7 +197,17 @@ namespace ChronoHeist
             for (int i = 0; i < 4 && i < _spawnPods.Count; i++)
             {
                 string rigClass = _playerCrewClasses[i];
-                GameObject op = CreateOperativeVisual($"Turntable_L{i + 1}_{rigClass}", _spawnPods[i].position + Vector3.up * 0.08f, Quaternion.Euler(0f, 180f, 0f), rigClass, _equippedSkinId, _equippedWeaponId, false, false);
+                // Face South (-Z, 180 deg) so operatives face directly toward the camera!
+                GameObject op = CreateOperativeVisual(
+                    $"Turntable_L{i + 1}_{rigClass}",
+                    _spawnPods[i].position + Vector3.up * 0.08f,
+                    Quaternion.Euler(0f, 180f, 0f),
+                    rigClass,
+                    _equippedSkinId,
+                    _equippedWeaponId,
+                    false,
+                    false,
+                    i * 0.8f);
                 _turntableOperatives.Add(op);
             }
         }
@@ -210,30 +220,78 @@ namespace ChronoHeist
             string skinId,
             string weaponId,
             bool isEcho,
-            bool isRival)
+            bool isRival,
+            float phaseOffset = 0f)
         {
-            // Alternate between Male & Female Quaternius rigged FBX operatives based on class
-            string charModel = (rigClass == "phase_phantom" || rigClass == "grav_runner")
-                ? "Char_Operative_Female"
-                : "Char_Operative_Male";
-
             Color bodyColor = GetOperativeColor(rigClass, skinId, isEcho, isRival);
-            GameObject root = CyberVaultSceneBuilder.SpawnModel(charModel, objName, _arenaRoot, pos, rot, Vector3.one * 0.95f, bodyColor, false);
+            Color visorColor = isRival
+                ? CyberVaultSceneBuilder.ColInfraredRed
+                : (isEcho ? CyberVaultSceneBuilder.ColAcidVolt : CyberVaultSceneBuilder.ColSignalOrange);
+
+            // Use Quaternius segmented cybernetic operative chassis (Char_Mannequin: M_Main armor plates + M_Joints carbon frame)
+            GameObject root = CyberVaultSceneBuilder.SpawnModel(
+                "Char_Mannequin",
+                objName,
+                _arenaRoot,
+                pos,
+                rot,
+                Vector3.one * 1.02f,
+                bodyColor,
+                false,
+                null,
+                isEcho);
 
             if (isEcho)
             {
-                CyberVaultSceneBuilder.ApplyIndustrialMaterial(root, bodyColor, isRival ? 0.95f : 0.65f);
+                CyberVaultSceneBuilder.BindQuaterniusTexturesAndMaterials(root, "Char_Mannequin", bodyColor, isRival ? 0.75f : 0.45f, true);
             }
 
-            // Attach 3D Melee Weapon from Quaternius Sci-Fi Essentials to Hand_R or torso socket
-            string weaponResource = GetWeaponResourceName(weaponId);
-            Transform handSocket = FindDeepChild(root.transform, "Hand_R") ?? FindDeepChild(root.transform, "hand.R") ?? root.transform;
-            Color weaponColor = isRival ? CyberVaultSceneBuilder.ColInfraredRed : CyberVaultSceneBuilder.ColSignalOrange;
-            GameObject weaponObj = CyberVaultSceneBuilder.SpawnModel(weaponResource, "EquippedWeapon", handSocket, Vector3.zero, Quaternion.identity, Vector3.one * 0.85f, weaponColor, false);
-            if (handSocket == root.transform)
+            // 1. Attach Glowing Tactical Cyber-Visor to Head bone
+            Transform headBone = FindDeepChild(root.transform, "Head");
+            if (headBone != null)
             {
-                weaponObj.transform.localPosition = new Vector3(0.38f, 0.95f, 0.35f);
+                GameObject visor = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                visor.name = "CyberVisor";
+                Destroy(visor.GetComponent<Collider>());
+                visor.transform.SetParent(headBone, false);
+                visor.transform.localPosition = new Vector3(0f, 0.11f, 0.09f);
+                visor.transform.localRotation = Quaternion.identity;
+                visor.transform.localScale = new Vector3(0.17f, 0.055f, 0.12f);
+                CyberVaultSceneBuilder.BindQuaterniusTexturesAndMaterials(visor, "Visor", visorColor, 1.2f, true);
             }
+
+            // 2. Attach Chrono Core Pack to upper back (spine_03)
+            Transform spineBone = FindDeepChild(root.transform, "spine_03");
+            if (spineBone != null)
+            {
+                CyberVaultSceneBuilder.SpawnModel(
+                    "Core_Tube",
+                    "ChronoBackModule",
+                    spineBone,
+                    new Vector3(0f, 0.08f, -0.14f),
+                    Quaternion.identity,
+                    Vector3.one * 0.42f,
+                    visorColor,
+                    false);
+            }
+
+            // 3. Attach 3D Weapon from Quaternius Sci-Fi Essentials directly to hand_r in local space
+            string weaponResource = GetWeaponResourceName(weaponId);
+            Transform handSocket = FindDeepChild(root.transform, "hand_r") ?? FindDeepChild(root.transform, "Hand_R") ?? root.transform;
+            Color weaponColor = isRival ? CyberVaultSceneBuilder.ColInfraredRed : CyberVaultSceneBuilder.ColSignalOrange;
+            CyberVaultSceneBuilder.SpawnModel(
+                weaponResource,
+                "EquippedWeapon",
+                handSocket,
+                new Vector3(0f, 0.02f, 0.04f),
+                Quaternion.Euler(0f, 90f, 0f),
+                Vector3.one * 0.75f,
+                weaponColor,
+                false);
+
+            // 4. Attach Procedural + Clip Rig Animator so character NEVER T-poses and always faces root.forward
+            OperativeRigAnimator rigAnim = root.AddComponent<OperativeRigAnimator>();
+            rigAnim.Initialize(root.transform, phaseOffset);
 
             return root;
         }
@@ -242,7 +300,8 @@ namespace ChronoHeist
         {
             foreach (Transform child in parent)
             {
-                if (child.name.IndexOf(partialName, StringComparison.OrdinalIgnoreCase) >= 0)
+                if (child.name.Equals(partialName, StringComparison.OrdinalIgnoreCase) ||
+                    child.name.IndexOf(partialName, StringComparison.OrdinalIgnoreCase) >= 0)
                     return child;
                 Transform found = FindDeepChild(child, partialName);
                 if (found != null) return found;
@@ -260,18 +319,18 @@ namespace ChronoHeist
                 return CyberVaultSceneBuilder.ColSignalOrange;
             }
 
-            if (skinId == "skin_specops") return CyberVaultSceneBuilder.ColCarbon;
+            if (skinId == "skin_specops") return new Color(0.22f, 0.24f, 0.27f, 1f);
             if (skinId == "skin_hazard") return CyberVaultSceneBuilder.ColAmberGold;
-            if (skinId == "skin_archon") return new Color(0.85f, 0.88f, 0.92f, 1f);
-            if (skinId == "skin_sovereign") return new Color(0.95f, 0.75f, 0.12f, 1f);
+            if (skinId == "skin_archon") return CyberVaultSceneBuilder.ColBoneWhite;
+            if (skinId == "skin_sovereign") return new Color(1.0f, 0.78f, 0.14f, 1f);
 
             switch (rigClass)
             {
                 case "tech_hacker": return CyberVaultSceneBuilder.ColAmberGold;
                 case "grav_runner": return CyberVaultSceneBuilder.ColAcidVolt;
-                case "phase_phantom": return CyberVaultSceneBuilder.ColBoneWhite;
-                case "enforcer": return CyberVaultSceneBuilder.ColSignalOrange;
-                default: return new Color(0.20f, 0.22f, 0.24f, 1f);
+                case "phase_phantom": return new Color(0.88f, 0.94f, 0.98f, 1f);
+                case "enforcer": return new Color(0.95f, 0.36f, 0.08f, 1f);
+                default: return CyberVaultSceneBuilder.ColSignalOrange; // High-key Signal Orange for starter Infiltrator!
             }
         }
 
@@ -290,6 +349,15 @@ namespace ChronoHeist
         // BROWSER -> UNITY PUBLIC RPC METHODS (Called via SendMessage)
         // ====================================================================
 
+        public void SetLobbyViewMode(string mode)
+        {
+            if (_cameraRig != null && !_isMatchRunning)
+            {
+                _cameraRig.IsArmoryTurntableMode = string.Equals(mode, "armory", StringComparison.OrdinalIgnoreCase);
+                BroadcastHudState();
+            }
+        }
+
         public void FocusArmorySlot(int slotIndex)
         {
             if (_cameraRig != null)
@@ -302,7 +370,6 @@ namespace ChronoHeist
 
         public void ConfigureCrewAndArmory(string jsonConfig)
         {
-            // Expected simple pipe/comma or JSON config: l1,l2,l3,l4|skinId|weaponId|shaderId|focusedSlot
             try
             {
                 if (!string.IsNullOrEmpty(jsonConfig) && jsonConfig.Contains("|"))
@@ -348,7 +415,7 @@ namespace ChronoHeist
             Time.timeScale = 1.0f;
             if (_cameraRig != null)
             {
-                _cameraRig.IsArmoryTurntableMode = true;
+                _cameraRig.IsArmoryTurntableMode = false;
             }
             ClearActiveMatchActors();
             RebuildArenaAndTurntable(_currentSectorId);
@@ -678,7 +745,21 @@ namespace ChronoHeist
 
         private void Update()
         {
-            if (!_isMatchRunning) return;
+            if (!_isMatchRunning)
+            {
+                // Keep Lobby 3D facility alive with patrolling Mech-Drones and rotating Data Cores!
+                float lobbyDt = Time.unscaledDeltaTime;
+                _loopTimer = (_loopTimer + lobbyDt) % 15.0f;
+                UpdateMechDrones(lobbyDt);
+                for (int i = 0; i < _cores.Count; i++)
+                {
+                    if (_cores[i].CoreMeshObj != null)
+                    {
+                        _cores[i].CoreMeshObj.transform.Rotate(Vector3.up, lobbyDt * 95f, Space.World);
+                    }
+                }
+                return;
+            }
 
             if (_eventBannerTimer > 0f)
             {
@@ -805,9 +886,8 @@ namespace ChronoHeist
                 AttemptPlayerBladeStrike();
             }
 
-            Vector3 velocity = (inputVec.sqrMagnitude > 0.01f || _dashActiveTimer > 0f)
-                ? _moveDir * baseSpeed
-                : Vector3.zero;
+            bool isMoving = inputVec.sqrMagnitude > 0.01f || _dashActiveTimer > 0f;
+            Vector3 velocity = isMoving ? _moveDir * baseSpeed : Vector3.zero;
 
             Vector3 nextPos = _playerPos + velocity * dt;
             nextPos = ResolveArenaCollisions(_playerPos, nextPos, _phaseBlinkTimer > 0f);
@@ -815,6 +895,13 @@ namespace ChronoHeist
 
             _playerObj.transform.position = _playerPos;
             _playerObj.transform.rotation = Quaternion.Slerp(_playerObj.transform.rotation, Quaternion.Euler(0f, _playerYaw, 0f), dt * 18f);
+
+            OperativeRigAnimator playerRigAnim = _playerObj.GetComponent<OperativeRigAnimator>();
+            if (playerRigAnim != null)
+            {
+                int state = _dashActiveTimer > 0f ? 3 : (_playerCarriedCoreId >= 0 ? 2 : (isMoving ? 1 : 0));
+                playerRigAnim.SetAnimState(state);
+            }
         }
 
         private Vector3 ResolveArenaCollisions(Vector3 fromPos, Vector3 toPos, bool ignoreLaserGates)
@@ -1117,6 +1204,12 @@ namespace ChronoHeist
 
                 echo.RootObj.transform.position = pos;
                 echo.RootObj.transform.rotation = Quaternion.Euler(0f, snap.yaw, 0f);
+
+                OperativeRigAnimator echoRigAnim = echo.RootObj.GetComponent<OperativeRigAnimator>();
+                if (echoRigAnim != null)
+                {
+                    echoRigAnim.SetAnimState(echo.CarriedCoreId >= 0 ? 2 : Mathf.Max(1, snap.anim));
+                }
 
                 // Update Rival Frontal Guard Arc visual
                 if (echo.IsRival && echo.GuardArcRenderer != null)
@@ -1549,4 +1642,211 @@ namespace ChronoHeist
             return s.Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
     }
+
+    /// <summary>
+    /// Self-calibrating skeletal pose & locomotion driver for Quaternius humanoid rigs (Char_Mannequin / UAL2).
+    /// Eliminates T-posing by aiming shoulder->elbow, elbow->wrist, hip->knee, and knee->ankle bone segments
+    /// in character space every LateUpdate, and automatically aligns foot->toe forward direction with root.forward.
+    /// </summary>
+    public class OperativeRigAnimator : MonoBehaviour
+    {
+        private Transform _root;
+        private Transform _meshChild;
+        private float _phaseOffset;
+        private int _animState = 0; // 0=Idle/Guard, 1=Run, 2=CarryCore, 3=BladeDash
+
+        private Transform _upperArmL, _lowerArmL, _handL;
+        private Transform _upperArmR, _lowerArmR, _handR;
+        private Transform _thighL, _calfL, _footL, _ballL;
+        private Transform _thighR, _calfR, _footR;
+        private Transform _spine02, _head;
+
+        private Quaternion _bindUpperArmL, _bindLowerArmL;
+        private Quaternion _bindUpperArmR, _bindLowerArmR;
+        private Quaternion _bindThighL, _bindCalfL;
+        private Quaternion _bindThighR, _bindCalfR;
+        private Quaternion _bindSpine02, _bindHead;
+        private bool _initialized = false;
+
+        public void Initialize(Transform root, float phaseOffset = 0f)
+        {
+            _root = root;
+            _phaseOffset = phaseOffset;
+            _meshChild = root.childCount > 0 ? root.GetChild(0) : root;
+
+            // Disable default unconfigured Animator so it never resets bones to bind T-pose
+            Animator[] anims = root.GetComponentsInChildren<Animator>(true);
+            for (int i = 0; i < anims.Length; i++)
+            {
+                if (anims[i].runtimeAnimatorController == null)
+                {
+                    anims[i].enabled = false;
+                }
+            }
+
+            _upperArmL = FindBone(root, "upperarm_l");
+            _lowerArmL = FindBone(root, "lowerarm_l");
+            _handL     = FindBone(root, "hand_l");
+
+            _upperArmR = FindBone(root, "upperarm_r");
+            _lowerArmR = FindBone(root, "lowerarm_r");
+            _handR     = FindBone(root, "hand_r");
+
+            _thighL    = FindBone(root, "thigh_l");
+            _calfL     = FindBone(root, "calf_l");
+            _footL     = FindBone(root, "foot_l");
+            _ballL     = FindBone(root, "ball_l");
+
+            _thighR    = FindBone(root, "thigh_r");
+            _calfR     = FindBone(root, "calf_r");
+            _footR     = FindBone(root, "foot_r");
+
+            _spine02   = FindBone(root, "spine_02");
+            _head      = FindBone(root, "Head");
+
+            // Self-calibrate forward facing: foot_l -> ball_l (heel to toe) always points toward character's front!
+            if (_footL != null && _ballL != null && _meshChild != null && _meshChild != _root)
+            {
+                Vector3 toeDir = _ballL.position - _footL.position;
+                toeDir.y = 0f;
+                if (toeDir.sqrMagnitude > 0.0001f && Vector3.Dot(toeDir.normalized, _root.forward) < 0f)
+                {
+                    _meshChild.localRotation = Quaternion.Euler(0f, 180f, 0f) * _meshChild.localRotation;
+                }
+            }
+
+            if (_upperArmL != null) _bindUpperArmL = _upperArmL.localRotation;
+            if (_lowerArmL != null) _bindLowerArmL = _lowerArmL.localRotation;
+            if (_upperArmR != null) _bindUpperArmR = _upperArmR.localRotation;
+            if (_lowerArmR != null) _bindLowerArmR = _lowerArmR.localRotation;
+            if (_thighL != null)    _bindThighL    = _thighL.localRotation;
+            if (_calfL != null)     _bindCalfL     = _calfL.localRotation;
+            if (_thighR != null)    _bindThighR    = _thighR.localRotation;
+            if (_calfR != null)     _bindCalfR     = _calfR.localRotation;
+            if (_spine02 != null)   _bindSpine02   = _spine02.localRotation;
+            if (_head != null)      _bindHead      = _head.localRotation;
+
+            _initialized = true;
+            ApplyPose(0f);
+        }
+
+        public void SetAnimState(int state)
+        {
+            _animState = state;
+        }
+
+        private void LateUpdate()
+        {
+            if (!_initialized || _root == null) return;
+            ApplyPose(Time.unscaledTime);
+        }
+
+        private void ApplyPose(float t)
+        {
+            // 1. Restore bind rotations before solving current frame's target directions
+            if (_upperArmL != null) _upperArmL.localRotation = _bindUpperArmL;
+            if (_lowerArmL != null) _lowerArmL.localRotation = _bindLowerArmL;
+            if (_upperArmR != null) _upperArmR.localRotation = _bindUpperArmR;
+            if (_lowerArmR != null) _bindLowerArmR = _lowerArmR.localRotation;
+            if (_thighL != null)    _thighL.localRotation    = _bindThighL;
+            if (_calfL != null)     _calfL.localRotation     = _bindCalfL;
+            if (_thighR != null)    _thighR.localRotation    = _bindThighR;
+            if (_calfR != null)     _calfR.localRotation     = _bindCalfR;
+            if (_spine02 != null)   _spine02.localRotation   = _bindSpine02;
+            if (_head != null)      _head.localRotation      = _bindHead;
+
+            if (_animState == 0)
+            {
+                // TACTICAL READY IDLE STANCE (Arms lowered & bent in combat guard, subtle breathing sway)
+                float breath = Mathf.Sin(t * 2.6f + _phaseOffset) * 0.04f;
+                float lookSway = Mathf.Sin(t * 1.3f + _phaseOffset) * 0.08f;
+
+                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.26f, -0.92f, 0.16f + breath)));
+                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3( 0.22f,  0.24f + breath, 0.94f)));
+
+                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.30f, -0.88f, 0.22f + breath)));
+                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3(-0.20f + lookSway, 0.32f + breath, 0.92f)));
+
+                AimSegment(_thighL, _calfL, _root.TransformDirection(new Vector3(-0.08f, -0.98f,  0.10f)));
+                AimSegment(_calfL,  _footL, _root.TransformDirection(new Vector3(-0.04f, -0.98f, -0.12f)));
+
+                AimSegment(_thighR, _calfR, _root.TransformDirection(new Vector3( 0.08f, -0.98f, -0.08f)));
+                AimSegment(_calfR,  _footR, _root.TransformDirection(new Vector3( 0.04f, -0.98f, -0.14f)));
+            }
+            else if (_animState == 1)
+            {
+                // ATHLETIC SPRINT CYCLE
+                float cycle = t * 14.5f + _phaseOffset;
+                float s = Mathf.Sin(cycle);
+                float c = Mathf.Cos(cycle);
+
+                AimSegment(_thighL, _calfL, _root.TransformDirection(new Vector3(-0.07f, -0.86f,  s * 0.56f)));
+                AimSegment(_calfL,  _footL, _root.TransformDirection(new Vector3(-0.04f, -0.88f, Mathf.Min(0f, c * 0.45f) - 0.32f)));
+
+                AimSegment(_thighR, _calfR, _root.TransformDirection(new Vector3( 0.07f, -0.86f, -s * 0.56f)));
+                AimSegment(_calfR,  _footR, _root.TransformDirection(new Vector3( 0.04f, -0.88f, Mathf.Min(0f, -c * 0.45f) - 0.32f)));
+
+                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.28f, -0.84f, -s * 0.48f)));
+                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3( 0.16f,  0.38f,  0.90f)));
+
+                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.28f, -0.84f,  s * 0.48f)));
+                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3(-0.16f,  0.38f,  0.90f)));
+            }
+            else if (_animState == 2)
+            {
+                // CARRYING DATA CORE (Arms cradling Core in front of torso while legs sprint)
+                float cycle = t * 14.0f + _phaseOffset;
+                float s = Mathf.Sin(cycle);
+
+                AimSegment(_thighL, _calfL, _root.TransformDirection(new Vector3(-0.07f, -0.88f,  s * 0.50f)));
+                AimSegment(_calfL,  _footL, _root.TransformDirection(new Vector3(-0.04f, -0.90f, -0.30f)));
+
+                AimSegment(_thighR, _calfR, _root.TransformDirection(new Vector3( 0.07f, -0.88f, -s * 0.50f)));
+                AimSegment(_calfR,  _footR, _root.TransformDirection(new Vector3( 0.04f, -0.90f, -0.30f)));
+
+                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.22f, -0.55f, 0.78f)));
+                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3( 0.35f,  0.45f, 0.82f)));
+
+                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.22f, -0.55f, 0.78f)));
+                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3(-0.35f,  0.45f, 0.82f)));
+            }
+            else
+            {
+                // BLADE DASH / BACKSTAB CLEAVE LUNGE
+                AimSegment(_thighL, _calfL, _root.TransformDirection(new Vector3(-0.10f, -0.72f,  0.68f)));
+                AimSegment(_calfL,  _footL, _root.TransformDirection(new Vector3(-0.05f, -0.92f, -0.25f)));
+
+                AimSegment(_thighR, _calfR, _root.TransformDirection(new Vector3( 0.10f, -0.75f, -0.65f)));
+                AimSegment(_calfR,  _footR, _root.TransformDirection(new Vector3( 0.05f, -0.80f, -0.55f)));
+
+                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.45f, -0.65f, -0.55f)));
+                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3(-0.25f, -0.30f, -0.88f)));
+
+                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.55f, -0.20f,  0.80f)));
+                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3(-0.65f,  0.15f,  0.74f)));
+            }
+        }
+
+        private static void AimSegment(Transform bone, Transform childBone, Vector3 desiredWorldDir)
+        {
+            if (bone == null || childBone == null) return;
+            Vector3 cur = childBone.position - bone.position;
+            if (cur.sqrMagnitude < 0.00001f || desiredWorldDir.sqrMagnitude < 0.00001f) return;
+            Quaternion delta = Quaternion.FromToRotation(cur.normalized, desiredWorldDir.normalized);
+            bone.rotation = delta * bone.rotation;
+        }
+
+        private static Transform FindBone(Transform parent, string boneName)
+        {
+            foreach (Transform child in parent)
+            {
+                if (string.Equals(child.name, boneName, StringComparison.OrdinalIgnoreCase))
+                    return child;
+                Transform found = FindBone(child, boneName);
+                if (found != null) return found;
+            }
+            return null;
+        }
+    }
 }
+

@@ -5,7 +5,7 @@ namespace ChronoHeist
 {
     public enum CameraViewMode
     {
-        TacticalFollow = 0,   // 46 deg pitch, 18 deg yaw, dynamic aim look-ahead
+        TacticalFollow = 0,   // 46 deg pitch, 16 deg yaw, dynamic aim look-ahead
         CloseAction = 1,      // 26 deg 3rd-person shoulder angle + automatic wall X-ray cutaway
         OverwatchBlueprint = 2 // 66 deg high-command view of all 5 zones
     }
@@ -17,7 +17,7 @@ namespace ChronoHeist
         public Camera TargetCamera;
         public Transform FollowTarget;
         public Vector3 AimDirection = Vector3.forward;
-        public bool IsArmoryTurntableMode = true;
+        public bool IsArmoryTurntableMode = false;
         public int FocusedPodIndex = 0; // 0..3 when inspecting L1..L4 crew slots in Armory
 
         public CameraViewMode CurrentMode = CameraViewMode.TacticalFollow;
@@ -43,6 +43,7 @@ namespace ChronoHeist
 
         public string CycleCameraMode()
         {
+            IsArmoryTurntableMode = false;
             int next = ((int)CurrentMode + 1) % 3;
             CurrentMode = (CameraViewMode)next;
             WebGLBridge.TriggerSynth("ui_cam_switch", 0.7f);
@@ -74,7 +75,6 @@ namespace ChronoHeist
 
         private void Update()
         {
-            // Restore hit-stop using unscaledDeltaTime
             if (_hitStopTimer > 0f)
             {
                 _hitStopTimer -= Time.unscaledDeltaTime;
@@ -112,9 +112,15 @@ namespace ChronoHeist
                 return;
             }
 
-            if (FollowTarget == null) return;
+            // If in Lobby (no active player operative), focus on the facility command hub with subtle cinematic sway
+            bool isLobbyOverview = (FollowTarget == null);
+            _orbitAngle += Time.unscaledDeltaTime * 6.0f;
+            float lobbySwayX = isLobbyOverview ? Mathf.Sin(_orbitAngle * Mathf.Deg2Rad) * 1.1f : 0f;
 
-            Vector3 targetPos = FollowTarget.position;
+            Vector3 targetPos = isLobbyOverview
+                ? new Vector3(lobbySwayX, 0.5f, -2.2f)
+                : FollowTarget.position;
+
             Vector3 desiredOffset;
             Quaternion desiredRot;
             float baseFov;
@@ -122,15 +128,13 @@ namespace ChronoHeist
             switch (CurrentMode)
             {
                 case CameraViewMode.CloseAction:
-                    // Low 26 deg over-the-shoulder action angle
                     desiredRot = Quaternion.Euler(26f, 10f, _punchIntensity * 3.5f);
-                    desiredOffset = desiredRot * new Vector3(0f, 0f, -9.2f);
-                    targetPos += AimDirection * 1.8f + Vector3.up * 1.25f;
-                    baseFov = 54f;
+                    desiredOffset = desiredRot * new Vector3(0f, 0f, isLobbyOverview ? -12.5f : -9.2f);
+                    if (!isLobbyOverview) targetPos += AimDirection * 1.8f + Vector3.up * 1.25f;
+                    baseFov = 52f;
                     break;
 
                 case CameraViewMode.OverwatchBlueprint:
-                    // High-altitude 66 deg tactical blueprint view of all 5 zones
                     desiredRot = Quaternion.Euler(66f, 0f, _punchIntensity * 2.0f);
                     desiredOffset = desiredRot * new Vector3(0f, 0f, -24.5f);
                     targetPos = Vector3.Lerp(targetPos, new Vector3(0f, 0f, -0.5f), 0.65f);
@@ -139,17 +143,15 @@ namespace ChronoHeist
 
                 case CameraViewMode.TacticalFollow:
                 default:
-                    // Signature 46 deg tilted isometric angle with 16 deg yaw + dynamic look-ahead
-                    desiredRot = Quaternion.Euler(46f, 16f, _punchIntensity * 3.2f);
-                    desiredOffset = desiredRot * new Vector3(0f, 0f, -15.8f);
-                    targetPos += AimDirection * 2.6f + Vector3.up * 0.6f;
+                    desiredRot = Quaternion.Euler(46f, 14f, _punchIntensity * 3.2f);
+                    desiredOffset = desiredRot * new Vector3(0f, 0f, isLobbyOverview ? -17.5f : -15.8f);
+                    if (!isLobbyOverview) targetPos += AimDirection * 2.4f + Vector3.up * 0.6f;
                     baseFov = 45f;
                     break;
             }
 
             if (_rewindBlend > 0f)
             {
-                // Pull camera along high arc during 0.7s loop tape-rewind
                 desiredOffset += new Vector3(0f, _rewindBlend * 6.5f, -_rewindBlend * 4.0f);
             }
 
@@ -158,35 +160,38 @@ namespace ChronoHeist
             transform.rotation = Quaternion.Slerp(transform.rotation, desiredRot, Time.unscaledDeltaTime * 14f);
             TargetCamera.fieldOfView = Mathf.Lerp(TargetCamera.fieldOfView, baseFov - (_punchIntensity * 5.5f), Time.unscaledDeltaTime * 16f);
 
-            // Automatic Wall Cutaway in Close Action & Tactical Follow modes so walls never block the operative
             if (CurrentMode != CameraViewMode.OverwatchBlueprint)
             {
-                ApplyWallCutaway(transform.position, FollowTarget.position + Vector3.up * 1.1f);
+                Vector3 focusPoint = isLobbyOverview ? new Vector3(0f, 1.1f, -5.5f) : (FollowTarget.position + Vector3.up * 1.1f);
+                ApplyWallCutaway(transform.position, focusPoint);
             }
         }
 
         private void UpdateArmoryTurntableCamera()
         {
-            _orbitAngle += Time.unscaledDeltaTime * 8.0f;
+            _orbitAngle += Time.unscaledDeltaTime * 10.0f;
             float podX = -4.5f + (FocusedPodIndex * 3.0f);
-            Vector3 podTarget = new Vector3(podX, 1.35f, -8.5f);
+            Vector3 podTarget = new Vector3(podX, 1.15f, -8.5f);
 
-            float swayX = Mathf.Sin(_orbitAngle * Mathf.Deg2Rad) * 1.35f;
-            Vector3 camPos = new Vector3(podX + swayX, 2.35f, -13.6f);
+            float swayX = Mathf.Sin(_orbitAngle * Mathf.Deg2Rad) * 0.85f;
+            Vector3 camPos = new Vector3(podX + swayX, 1.85f, -12.2f);
             Quaternion camRot = Quaternion.LookRotation((podTarget - camPos).normalized, Vector3.up);
 
-            transform.position = Vector3.SmoothDamp(transform.position, camPos, ref _currentVelocity, 0.14f, 60f, Time.unscaledDeltaTime);
+            transform.position = Vector3.SmoothDamp(transform.position, camPos, ref _currentVelocity, 0.12f, 60f, Time.unscaledDeltaTime);
             transform.rotation = Quaternion.Slerp(transform.rotation, camRot, Time.unscaledDeltaTime * 10f);
-            TargetCamera.fieldOfView = Mathf.Lerp(TargetCamera.fieldOfView, 38f, Time.unscaledDeltaTime * 10f);
+            TargetCamera.fieldOfView = Mathf.Lerp(TargetCamera.fieldOfView, 36f, Time.unscaledDeltaTime * 10f);
+
+            // Cut away South perimeter wall so camera at z=-12.2 has an unobstructed view of the Cryo Pods at z=-8.5
+            ApplyWallCutaway(transform.position, podTarget);
         }
 
-        private void ApplyWallCutaway(Vector3 camPos, Vector3 playerPos)
+        private void ApplyWallCutaway(Vector3 camPos, Vector3 targetPoint)
         {
-            Vector3 dir = playerPos - camPos;
+            Vector3 dir = targetPoint - camPos;
             float dist = dir.magnitude;
             if (dist <= 0.5f) return;
 
-            RaycastHit[] hits = Physics.SphereCastAll(camPos, 0.65f, dir.normalized, dist - 0.8f);
+            RaycastHit[] hits = Physics.SphereCastAll(camPos, 1.25f, dir.normalized, dist - 0.4f);
             for (int i = 0; i < hits.Length; i++)
             {
                 GameObject hitObj = hits[i].collider.gameObject;
@@ -196,14 +201,12 @@ namespace ChronoHeist
                     for (int r = 0; r < rends.Length; r++)
                     {
                         Renderer rend = rends[r];
-                        if (rend == null || rend.material == null) continue;
+                        if (rend == null) continue;
                         if (!_originalWallColors.ContainsKey(rend))
                         {
-                            _originalWallColors[rend] = rend.material.color;
+                            _originalWallColors[rend] = rend.enabled ? Color.white : Color.clear;
                         }
-                        Color c = _originalWallColors[rend];
-                        c.a = 0.22f;
-                        rend.material.color = c;
+                        rend.enabled = false;
                         if (!_fadedWallRenderers.Contains(rend))
                         {
                             _fadedWallRenderers.Add(rend);
@@ -218,9 +221,9 @@ namespace ChronoHeist
             for (int i = 0; i < _fadedWallRenderers.Count; i++)
             {
                 Renderer rend = _fadedWallRenderers[i];
-                if (rend != null && _originalWallColors.TryGetValue(rend, out Color orig))
+                if (rend != null)
                 {
-                    rend.material.color = orig;
+                    rend.enabled = true;
                 }
             }
             _fadedWallRenderers.Clear();

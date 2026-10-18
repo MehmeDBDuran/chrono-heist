@@ -734,7 +734,7 @@ export default function ChronoHeistApp() {
           )}
         </div>
 
-        {/* Center: 4-Loop Segmented Timeline & Tug-of-War Score Bar */}
+        {/* Center: 4-Loop Segmented Timeline & Briefing / Tug-of-War Score Bar */}
         <div className="loop-cluster hud-interactive">
           <div className="loop-segments">
             {[1, 2, 3, 4].map((lp) => {
@@ -742,8 +742,15 @@ export default function ChronoHeistApp() {
                 profile?.crew_loadout?.[lp - 1]
                   ?.replace("_", " ")
                   .toUpperCase() || "INFILTRATOR";
-              const stateClass =
-                lp < hud.loop ? "done" : lp === hud.loop ? "active" : "";
+              const stateClass = hud.isRunning
+                ? lp < hud.loop
+                  ? "done"
+                  : lp === hud.loop
+                  ? "active"
+                  : ""
+                : lp === focusedLoopSlot + 1
+                ? "active"
+                : "";
               return (
                 <div key={lp} className={`loop-pill ${stateClass}`}>
                   L{lp} • {cls.slice(0, 6)}
@@ -752,45 +759,68 @@ export default function ChronoHeistApp() {
             })}
           </div>
 
-          <div className="tug-bar-wrap">
-            <div className="tug-scores">
-              <span
-                style={{
-                  color: "var(--signal-orange)",
-                  fontWeight: 800,
-                  fontSize: "0.82rem",
-                }}
+          {hud.isRunning ? (
+            <div className="tug-bar-wrap">
+              <div className="tug-scores">
+                <span
+                  style={{
+                    color: "var(--signal-orange)",
+                    fontWeight: 800,
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  YOU {hud.playerScore}
+                </span>
+                <span
+                  style={{
+                    color: "var(--ink-light)",
+                    fontWeight: 800,
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  LOOP {hud.loop}/4 • {hud.timeLeft.toFixed(1)}s
+                </span>
+                <span
+                  style={{
+                    color: "var(--infrared-red)",
+                    fontWeight: 800,
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  {hud.rivalScore} RIVAL
+                </span>
+              </div>
+              <div
+                className="tug-track"
+                style={{ "--you-pct": youPct } as React.CSSProperties}
               >
-                YOU {hud.playerScore}
-              </span>
-              <span
-                style={{
-                  color: "var(--ink-light)",
-                  fontWeight: 800,
-                  fontSize: "0.95rem",
-                }}
-              >
-                {hud.isRunning
-                  ? `${hud.timeLeft.toFixed(1)}s`
-                  : "4 × 15.0s LOOPS"}
-              </span>
-              <span
-                style={{
-                  color: "var(--infrared-red)",
-                  fontWeight: 800,
-                  fontSize: "0.82rem",
-                }}
-              >
-                {hud.rivalScore} RIVAL
-              </span>
+                <div className="tug-fill-you" />
+              </div>
             </div>
-            <div
-              className="tug-track"
-              style={{ "--you-pct": youPct } as React.CSSProperties}
-            >
-              <div className="tug-fill-you" />
+          ) : (
+            <div className="tug-bar-wrap" style={{ padding: "5px 12px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "0.72rem",
+                  fontWeight: 800,
+                }}
+              >
+                <span style={{ color: "var(--acid-volt)" }}>
+                  FACILITY READY // 4 × 15.0s LOOPS
+                </span>
+                <span style={{ color: "var(--ink-light)" }}>
+                  TARGET:{" "}
+                  {contracts.find((c) => c.contract_tier === selectedContractTier)
+                    ?.target_score ?? 350}{" "}
+                  PTS
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Right: Camera Angle Switcher [V], Audio Synth Mute, Dual-Currency Arcade Vault */}
@@ -941,14 +971,14 @@ export default function ChronoHeistApp() {
           className="brutalist-bone hud-interactive"
           style={{
             position: "absolute",
-            top: "96px",
+            top: "84px",
             left: "16px",
-            maxWidth: "410px",
-            padding: "14px 16px",
+            maxWidth: "375px",
+            padding: "12px 14px",
             zIndex: 28,
             display: "flex",
             flexDirection: "column",
-            gap: "10px",
+            gap: "8px",
           }}
         >
           <div
@@ -957,22 +987,22 @@ export default function ChronoHeistApp() {
               justifyContent: "space-between",
               alignItems: "center",
               fontFamily: "var(--font-mono)",
-              fontSize: "0.72rem",
+              fontSize: "0.7rem",
               fontWeight: 800,
               color: "var(--signal-orange)",
             }}
           >
             <span>FIRST-TIME OPERATIVE DETECTED</span>
-            <span>50s PLAYABLE RUN</span>
+            <span>60s PLAYABLE RUN</span>
           </div>
-          <div style={{ fontWeight: 700, fontSize: "0.96rem" }}>
+          <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
             Master Temporal Alley-Oops & Causal Laser Wipeouts in 4 Guided
             Loops
           </div>
           <div
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: "0.73rem",
+              fontSize: "0.71rem",
               color: "var(--ink-muted)",
             }}
           >
@@ -1002,7 +1032,7 @@ export default function ChronoHeistApp() {
       )}
 
       {/* ===================================================================
-          LOBBY BOTTOM COMMAND DOCK (Leaves 3D Turntable Unobstructed)
+          LOBBY BOTTOM COMMAND DOCK (Leaves 3D Facility Unobstructed)
       =================================================================== */}
       {!hud.isRunning && (
         <section className="lobby-bottom-dock">
@@ -1034,10 +1064,10 @@ export default function ChronoHeistApp() {
           <div
             className="brutalist-bone hud-interactive"
             style={{
-              padding: "12px 16px",
+              padding: "10px 14px",
               display: "flex",
               flexDirection: "column",
-              gap: "12px",
+              gap: "10px",
             }}
           >
             {/* Mode Switcher Tabs + Primary Deploy Trigger */}
@@ -1047,7 +1077,7 @@ export default function ChronoHeistApp() {
                 justifyContent: "space-between",
                 alignItems: "center",
                 flexWrap: "wrap",
-                gap: "10px",
+                gap: "8px",
               }}
             >
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
@@ -1059,6 +1089,11 @@ export default function ChronoHeistApp() {
                   onClick={() => {
                     chronoSynth.trigger("ui_click", 0.6);
                     setActiveDockTab("contracts");
+                    unityRef.current?.SendMessage(
+                      "ChronoGameManager",
+                      "SetLobbyViewMode",
+                      "overview"
+                    );
                   }}
                 >
                   1. SYNDICATE CONTRACTS (FREE)
@@ -1072,6 +1107,11 @@ export default function ChronoHeistApp() {
                   onClick={() => {
                     chronoSynth.trigger("ui_click", 0.6);
                     setActiveDockTab("bounties");
+                    unityRef.current?.SendMessage(
+                      "ChronoGameManager",
+                      "SetLobbyViewMode",
+                      "overview"
+                    );
                   }}
                 >
                   2. WANTED BOUNTIES ($UDAO PVP)
@@ -1085,6 +1125,11 @@ export default function ChronoHeistApp() {
                   onClick={() => {
                     chronoSynth.trigger("ui_click", 0.6);
                     setActiveDockTab("armory");
+                    unityRef.current?.SendMessage(
+                      "ChronoGameManager",
+                      "SetLobbyViewMode",
+                      "armory"
+                    );
                     if (tourStep === 1) setTourStep(2);
                   }}
                 >
@@ -1099,6 +1144,11 @@ export default function ChronoHeistApp() {
                   onClick={() => {
                     chronoSynth.trigger("ui_click", 0.6);
                     setActiveDockTab("daily");
+                    unityRef.current?.SendMessage(
+                      "ChronoGameManager",
+                      "SetLobbyViewMode",
+                      "overview"
+                    );
                   }}
                 >
                   4. DAILY ANOMALY & STREAK
@@ -1135,7 +1185,7 @@ export default function ChronoHeistApp() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
                   gap: "8px",
                 }}
               >
@@ -1157,40 +1207,42 @@ export default function ChronoHeistApp() {
                         setSelectedContractTier(c.contract_tier);
                       }}
                       style={{
-                        padding: "10px 12px",
+                        padding: "8px 11px",
                         border: isSel
                           ? "2px solid var(--signal-orange)"
                           : "1.5px solid var(--ink-dark)",
                         background: isSel
                           ? "var(--bg-carbon)"
-                          : "var(--bg-putty)",
+                          : "var(--bg-bone)",
                         color: isSel ? "var(--ink-light)" : "var(--ink-dark)",
-                        opacity: unlocked ? 1 : 0.55,
                         cursor: unlocked ? "pointer" : "not-allowed",
                         display: "flex",
                         flexDirection: "column",
-                        gap: "4px",
+                        gap: "3px",
                       }}
                     >
                       <div
                         style={{
                           fontFamily: "var(--font-mono)",
-                          fontSize: "0.68rem",
+                          fontSize: "0.66rem",
                           color: isSel
                             ? "var(--acid-volt)"
-                            : "var(--signal-orange)",
+                            : unlocked
+                            ? "var(--signal-orange)"
+                            : "var(--ink-muted)",
                           fontWeight: 800,
                         }}
                       >
-                        {c.sector_name} // TARGET {c.target_score} PTS
+                        {unlocked ? c.sector_name : `[LOCKED — TIER ${c.contract_tier}]`} // TARGET {c.target_score} PTS
                       </div>
-                      <div style={{ fontWeight: 700, fontSize: "0.84rem" }}>
+                      <div style={{ fontWeight: 800, fontSize: "0.82rem" }}>
                         {c.title}
                       </div>
                       <div
                         style={{
                           fontFamily: "var(--font-mono)",
-                          fontSize: "0.7rem",
+                          fontSize: "0.68rem",
+                          color: isSel ? "var(--ink-light)" : "var(--ink-muted)",
                         }}
                       >
                         BOSS: {c.boss_callsign} • +{c.reward_gold}G

@@ -22,3 +22,4 @@ unity-project/*.sln
 
 # OS
 .DS_Store
+.vercel
