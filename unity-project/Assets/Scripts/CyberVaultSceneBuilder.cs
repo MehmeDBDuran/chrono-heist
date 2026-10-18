@@ -118,6 +118,30 @@ namespace ChronoHeist
             bool forceSolidTint = false)
         {
             GameObject wrapper = new GameObject(instanceName);
+            wrapper.transform.position = Vector3.zero;
+            wrapper.transform.rotation = Quaternion.identity;
+            wrapper.transform.localScale = Vector3.one;
+
+            GameObject prefab = LoadQuaterniusModel(resourceName);
+            if (prefab != null)
+            {
+                GameObject meshInst = Object.Instantiate(prefab, wrapper.transform, false);
+                meshInst.name = resourceName + "_Mesh";
+
+                // Auto-center horizontal pivot (X, Z) and ground base (min.Y = 0) for architectural & prop models
+                // so modular walls, doors, terminals, and cores never shift off-axis when rotated!
+                if (!resourceName.StartsWith("Char_") && !resourceName.StartsWith("Weapon_") && !resourceName.StartsWith("Hair_"))
+                {
+                    Renderer[] rends = meshInst.GetComponentsInChildren<Renderer>(true);
+                    if (rends.Length > 0)
+                    {
+                        Bounds b = rends[0].bounds;
+                        for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                        meshInst.transform.localPosition -= new Vector3(b.center.x, b.min.y, b.center.z);
+                    }
+                }
+            }
+
             if (parent != null)
             {
                 wrapper.transform.SetParent(parent, false);
@@ -125,13 +149,6 @@ namespace ChronoHeist
             wrapper.transform.localPosition = localPos;
             wrapper.transform.localRotation = localRot;
             wrapper.transform.localScale = scale;
-
-            GameObject prefab = LoadQuaterniusModel(resourceName);
-            if (prefab != null)
-            {
-                GameObject meshInst = Object.Instantiate(prefab, wrapper.transform, false);
-                meshInst.name = resourceName + "_Mesh";
-            }
 
             BindQuaterniusTexturesAndMaterials(wrapper, resourceName, tintColor, forceSolidTint ? 0.35f : 0f, forceSolidTint);
 
@@ -158,6 +175,7 @@ namespace ChronoHeist
             Shader std = Shader.Find("Universal Render Pipeline/Lit");
             if (std == null) std = Shader.Find("Standard");
             if (std == null) std = Shader.Find("Legacy Shaders/Diffuse");
+            Shader glassShader = Shader.Find("Sprites/Default") ?? std;
 
             Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
             for (int i = 0; i < renderers.Length; i++)
@@ -170,6 +188,18 @@ namespace ChronoHeist
                 for (int m = 0; m < origMats.Length; m++)
                 {
                     string slotName = origMats[m] != null ? origMats[m].name : "";
+                    string slotLower = slotName.ToLowerInvariant();
+
+                    // Render window glass slots as genuine see-through translucent glass
+                    if (slotLower.Contains("m_glass"))
+                    {
+                        Material glassMat = new Material(glassShader);
+                        glassMat.name = "WindowGlass_Translucent";
+                        glassMat.color = new Color(0.55f, 0.82f, 0.92f, 0.20f);
+                        newMats[m] = glassMat;
+                        continue;
+                    }
+
                     Material mat = new Material(std);
                     mat.name = slotName + "_Bound";
 
@@ -189,6 +219,7 @@ namespace ChronoHeist
                     if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", smoothness);
                     if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
                     if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", metallic);
+                    if (mat.HasProperty("_Cull")) mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
 
                     if (baseTex != null)
                     {
@@ -228,7 +259,7 @@ namespace ChronoHeist
         {
             baseTex = null;
             emTex = null;
-            smoothness = 0.38f;
+            smoothness = 0.42f;
             metallic = 0.15f;
 
             string s = (slotName ?? "").ToLowerInvariant();
@@ -301,42 +332,54 @@ namespace ChronoHeist
             else if (s.Contains("superhero_male"))
             {
                 baseTex = LoadQuaterniusTexture("T_Superhero_Male_Light_BaseColor");
+                resolvedColor = overrideAllSlotsWithTint ? tintColor : Color.Lerp(Color.white, tintColor, 0.35f);
+                smoothness = 0.45f;
+                return;
             }
             else if (s.Contains("superhero_female"))
             {
                 baseTex = LoadQuaterniusTexture("T_Superhero_Female_Light_BaseColor");
+                resolvedColor = overrideAllSlotsWithTint ? tintColor : Color.Lerp(Color.white, tintColor, 0.35f);
+                smoothness = 0.45f;
+                return;
             }
             else if (s.Contains("hair_1"))
             {
                 baseTex = LoadQuaterniusTexture("T_Hair_1_BaseColor");
+                resolvedColor = Color.white;
+                return;
             }
             else if (s.Contains("hair_2"))
             {
                 baseTex = LoadQuaterniusTexture("T_Hair_2_BaseColor");
+                resolvedColor = Color.white;
+                return;
             }
             else if (s.Contains("eyes"))
             {
                 baseTex = LoadQuaterniusTexture("T_Eye_Brown");
+                resolvedColor = Color.white;
+                return;
             }
             else if (s.Contains("m_main"))
             {
-                // Cybernetic Operative Outer Armor Plates (Char_Mannequin.fbx)
-                baseTex = LoadQuaterniusTexture("T_Trim_01_BaseColor");
+                // Clean untextured ceramic/titanium armor plates for Char_Mannequin (never apply wall trim stripes!)
+                baseTex = null;
                 resolvedColor = tintColor;
-                smoothness = 0.55f;
-                metallic = 0.25f;
+                smoothness = 0.68f;
+                metallic = 0.22f;
                 return;
             }
             else if (s.Contains("m_joints") || s.Contains("m_black"))
             {
-                // Cybernetic Operative Endo-Skeleton Joints / Dark Trim
-                baseTex = LoadQuaterniusTexture("T_Trim_03_Dark");
-                resolvedColor = new Color(0.16f, 0.17f, 0.18f, 1f);
-                smoothness = 0.45f;
-                metallic = 0.6f;
+                // Dark carbon endo-skeleton joints
+                baseTex = null;
+                resolvedColor = new Color(0.15f, 0.16f, 0.17f, 1f);
+                smoothness = 0.50f;
+                metallic = 0.65f;
                 return;
             }
-            else if (s.Contains("m_lightfade") || s.Contains("m_glass"))
+            else if (s.Contains("m_lightfade"))
             {
                 resolvedColor = tintColor;
                 smoothness = 0.8f;
@@ -349,8 +392,7 @@ namespace ChronoHeist
             }
             else if (baseTex != null)
             {
-                // Preserve crisp texture colors while softly blending architectural tint
-                resolvedColor = Color.Lerp(Color.white, tintColor, 0.28f);
+                resolvedColor = Color.Lerp(Color.white, tintColor, 0.26f);
             }
             else
             {
@@ -389,7 +431,6 @@ namespace ChronoHeist
                 : (sectorId == 3 ? new Color(0.90f, 0.92f, 0.95f) : ColBoneWhite);
 
             // 1. NON-OVERLAPPING 4.0m MODULAR FLOOR GRID (Zero Z-Fighting!)
-            // Quaternius Platform_3Plates / Platform_CenterPlate / Platform_X are 4.0m x 4.0m tiles.
             for (int gx = -3; gx <= 3; gx++)
             {
                 for (int gz = -3; gz <= 3; gz++)
@@ -401,7 +442,7 @@ namespace ChronoHeist
 
                     string floorModel = isCenter ? "Floor_Center" : ((Mathf.Abs(gx + gz) % 2 == 0) ? "Floor_Main" : "Floor_X");
                     Color floorCol = isNorthVault
-                        ? ColWarmPutty
+                        ? ColAmberGold
                         : (isSouthDeck ? ColBoneWhite : (isCenter ? ColBoneWhite : ColWarmPutty));
 
                     SpawnModel(floorModel, $"Floor_{gx}_{gz}", arenaRoot, tilePos, Quaternion.identity, Vector3.one, floorCol, false);
@@ -415,103 +456,129 @@ namespace ChronoHeist
             BoxCollider groundCol = groundColliderObj.AddComponent<BoxCollider>();
             groundCol.size = new Vector3(32f, 0.5f, 28f);
 
-            // 2. SOUTH EXTRACTION DECK & 4 CRYO SPAWN PODS (L1..L4) — Elevated at y = 0.06f to prevent coplanar Z-fighting
-            SpawnModel("Floor_Round", "South_Extraction_Ring", arenaRoot, new Vector3(0f, 0.06f, -8.2f), Quaternion.identity, new Vector3(0.9f, 0.5f, 0.9f), ColSignalOrange, false);
-            SpawnModel("Prop_Computer", "Extraction_Terminal", arenaRoot, new Vector3(0f, 0.08f, -10.2f), Quaternion.identity, Vector3.one, ColBoneWhite, false);
+            // 2. SOUTH EXTRACTION ZONE (Bright Glowing Escape Pad + Terminal) & 4 CRYO SPAWN PODS (L1..L4)
+            GameObject extractOuter = SpawnModel("Floor_Round", "South_Extraction_Ring", arenaRoot, new Vector3(0f, 0.04f, -8.2f), Quaternion.identity, new Vector3(0.85f, 0.45f, 0.85f), ColSignalOrange, false, null, true);
+            BindQuaterniusTexturesAndMaterials(extractOuter, "Floor_Round", ColSignalOrange, 0.55f, true);
+            SpawnModel("Floor_Round", "South_Extraction_Inner", arenaRoot, new Vector3(0f, 0.08f, -8.2f), Quaternion.identity, new Vector3(0.55f, 0.45f, 0.55f), ColAcidVolt, false, null, true);
+            SpawnModel("Prop_Computer", "Extraction_Terminal", arenaRoot, new Vector3(0f, 0.08f, -10.3f), Quaternion.identity, Vector3.one * 1.15f, ColBoneWhite, false);
 
             for (int i = 0; i < 4; i++)
             {
                 float podX = -4.5f + (i * 3.0f);
-                Vector3 podPos = new Vector3(podX, 0.05f, -8.5f);
-                GameObject podObj = SpawnModel("Floor_Round", $"CryoPod_L{i + 1}", arenaRoot, podPos, Quaternion.identity, new Vector3(0.55f, 0.5f, 0.55f), ColBoneWhite, false);
-                SpawnModel("Column_Hollow", $"CryoPodFrame_L{i + 1}", podObj.transform, new Vector3(0f, 0f, 0.85f), Quaternion.identity, new Vector3(0.75f, 0.85f, 0.75f), ColGunmetal, false);
+                Vector3 podPos = new Vector3(podX, 0.04f, -8.5f);
+                GameObject podObj = SpawnModel("Floor_Round", $"CryoPod_L{i + 1}", arenaRoot, podPos, Quaternion.identity, new Vector3(0.42f, 0.4f, 0.42f), ColBoneWhite, false);
+                SpawnModel("Column_Hollow", $"CryoPodFrame_L{i + 1}", podObj.transform, new Vector3(0f, 0f, 0.95f), Quaternion.identity, new Vector3(0.65f, 0.52f, 0.65f), ColGunmetal, false);
                 spawnPods.Add(podObj.transform);
             }
 
-            // 3. PERIMETER LAB BULKHEAD WALLS (4.0m stride matching Quaternius WallAstra_Straight width)
+            // 3. PERIMETER LAB BULKHEAD WALLS
+            // Note: Wall_Astra & Wall_Window have native 4.0m length along Z axis!
+            // Therefore North/South walls (along X) use Euler(0, 90, 0), and East/West walls (along Z) use identity / Euler(0, 180, 0)!
             for (int gx = -3; gx <= 3; gx++)
             {
-                // North Perimeter (z = +11.8)
-                SpawnModel("Wall_Astra", $"Wall_North_{gx}", arenaRoot, new Vector3(gx * 4.0f, 0f, 11.8f), Quaternion.identity, Vector3.one, primaryWallColor, true, new Vector3(4.0f, 3.2f, 0.6f));
-                // South Perimeter (z = -11.8, Cutaway-friendly in Close Action 3rd-Person Cam)
-                SpawnModel("Wall_Window", $"Wall_South_{gx}", arenaRoot, new Vector3(gx * 4.0f, 0f, -11.8f), Quaternion.Euler(0f, 180f, 0f), Vector3.one, primaryWallColor, true, new Vector3(4.0f, 2.8f, 0.6f));
+                // North Perimeter (z = +12.2, aligned along X, interior facing -Z)
+                SpawnModel("Wall_Astra", $"Wall_North_{gx}", arenaRoot, new Vector3(gx * 4.0f, 0f, 12.2f), Quaternion.Euler(0f, -90f, 0f), Vector3.one, primaryWallColor, true, new Vector3(1.0f, 3.1f, 4.0f));
+                // South Perimeter (z = -12.2, aligned along X, low cutaway-friendly window wall)
+                SpawnModel("Wall_Window", $"Wall_South_{gx}", arenaRoot, new Vector3(gx * 4.0f, 0f, -12.2f), Quaternion.Euler(0f, 90f, 0f), Vector3.one, primaryWallColor, true, new Vector3(0.6f, 3.0f, 4.0f));
             }
             for (int gz = -2; gz <= 2; gz++)
             {
-                // West Perimeter (x = -13.5)
-                SpawnModel("Wall_Astra", $"Wall_West_{gz}", arenaRoot, new Vector3(-13.5f, 0f, gz * 4.0f), Quaternion.Euler(0f, 90f, 0f), Vector3.one, primaryWallColor, true, new Vector3(4.0f, 3.2f, 0.6f));
-                // East Perimeter (x = +13.5)
-                SpawnModel("Wall_Astra", $"Wall_East_{gz}", arenaRoot, new Vector3(13.5f, 0f, gz * 4.0f), Quaternion.Euler(0f, -90f, 0f), Vector3.one, primaryWallColor, true, new Vector3(4.0f, 3.2f, 0.6f));
+                // West Perimeter (x = -13.5, aligned along Z, interior facing +X)
+                SpawnModel("Wall_Astra", $"Wall_West_{gz}", arenaRoot, new Vector3(-13.5f, 0f, gz * 4.0f), Quaternion.Euler(0f, 180f, 0f), Vector3.one, primaryWallColor, true, new Vector3(1.0f, 3.1f, 4.0f));
+                // East Perimeter (x = +13.5, aligned along Z, interior facing -X)
+                SpawnModel("Wall_Astra", $"Wall_East_{gz}", arenaRoot, new Vector3(13.5f, 0f, gz * 4.0f), Quaternion.identity, Vector3.one, primaryWallColor, true, new Vector3(1.0f, 3.1f, 4.0f));
             }
 
-            // Corner & Center Architectural Columns
+            // Corner & Center Symmetric Architectural Columns (Scaled to 3.05m height to match walls)
             Vector3[] columnPositions = new Vector3[]
             {
-                new Vector3(-5.5f, 0f, -4.5f),
-                new Vector3( 5.5f, 0f, -4.5f),
-                new Vector3(-5.5f, 0f,  5.5f),
-                new Vector3( 5.5f, 0f,  5.5f),
+                new Vector3(-5.5f, 0f, -3.5f),
+                new Vector3( 5.5f, 0f, -3.5f),
+                new Vector3(-5.5f, 0f,  5.8f),
+                new Vector3( 5.5f, 0f,  5.8f),
                 new Vector3( 0.0f, 0f,  0.0f) // Center Chrono Pillar
             };
             for (int i = 0; i < columnPositions.Length; i++)
             {
-                string colModel = (i == 4) ? "Column_Pipes" : "Column_Astra";
-                Color colTint = (i == 4) ? ColSignalOrange : ColBoneWhite;
-                SpawnModel(colModel, $"Column_{i}", arenaRoot, columnPositions[i], Quaternion.identity, Vector3.one, colTint, true, new Vector3(1.2f, 3.2f, 1.2f));
+                string colModel = (i == 4) ? "Column_Pipes" : "Column_Hollow";
+                Color colTint = (i == 4) ? ColSignalOrange : ColGunmetal;
+                Vector3 colScale = (i == 4) ? new Vector3(0.95f, 0.58f, 0.95f) : new Vector3(0.72f, 0.61f, 0.72f);
+                SpawnModel(colModel, $"Column_{i}", arenaRoot, columnPositions[i], Quaternion.identity, colScale, colTint, true, new Vector3(1.1f, 3.1f, 1.1f));
             }
 
-            // 4. THROW-APERTURE WINDOW DIVIDERS (Separating West Cryo Lab, Center Hub & East Reactor Bay)
-            float[] dividerZ = new float[] { -2.2f, 0.8f };
-            for (int i = 0; i < dividerZ.Length; i++)
-            {
-                SpawnModel("Wall_ShortAperture", $"Wall_ThrowWindow_W_{i}", arenaRoot, new Vector3(-5.5f, 0f, dividerZ[i]), Quaternion.Euler(0f, 90f, 0f), Vector3.one, ColBoneWhite, true, new Vector3(2.4f, 1.15f, 0.5f));
-                SpawnModel("Wall_ShortAperture", $"Wall_ThrowWindow_E_{i}", arenaRoot, new Vector3(5.5f, 0f, dividerZ[i]), Quaternion.Euler(0f, -90f, 0f), Vector3.one, ColBoneWhite, true, new Vector3(2.4f, 1.15f, 0.5f));
-            }
+            // 4. THROW-WINDOW BULKHEAD DIVIDERS (Separating West Cryo Wing, Center Hub & East Reactor Wing)
+            // Aligned along Z (Quaternion.identity) with translucent glass windows so players can see and throw Cores across!
+            SpawnModel("Wall_Window", "Wall_ThrowWindow_W_0", arenaRoot, new Vector3(-5.5f, 0f, -1.0f), Quaternion.identity, Vector3.one, ColBoneWhite, true, new Vector3(0.6f, 1.4f, 4.0f));
+            SpawnModel("Wall_Window", "Wall_ThrowWindow_E_0", arenaRoot, new Vector3( 5.5f, 0f, -1.0f), Quaternion.Euler(0f, 180f, 0f), Vector3.one, ColBoneWhite, true, new Vector3(0.6f, 1.4f, 4.0f));
 
-            // North Overdrive Vault Bulkhead Walls (Flanking the Central Laser Gate at z = 6.2)
-            SpawnModel("Wall_Window", "Wall_Overdrive_Left", arenaRoot, new Vector3(-3.4f, 0f, 6.2f), Quaternion.identity, Vector3.one, ColBoneWhite, true, new Vector3(3.2f, 3.0f, 0.6f));
-            SpawnModel("Wall_Window", "Wall_Overdrive_Right", arenaRoot, new Vector3(3.4f, 0f, 6.2f), Quaternion.identity, Vector3.one, ColBoneWhite, true, new Vector3(3.2f, 3.0f, 0.6f));
+            // North Overdrive Vault Bulkhead Walls (Aligned along X at z = 6.2, flanking the Central Laser Gate)
+            SpawnModel("Wall_Window", "Wall_Overdrive_Left",  arenaRoot, new Vector3(-3.8f, 0f, 6.2f), Quaternion.Euler(0f, 90f, 0f), Vector3.one, ColBoneWhite, true, new Vector3(0.6f, 3.0f, 4.0f));
+            SpawnModel("Wall_Window", "Wall_Overdrive_Right", arenaRoot, new Vector3( 3.8f, 0f, 6.2f), Quaternion.Euler(0f, 90f, 0f), Vector3.one, ColBoneWhite, true, new Vector3(0.6f, 3.0f, 4.0f));
 
-            // 5. PRESSURE PAD -> LASER GATE CIRCUITS
-            CreatePressurePad(arenaRoot, pads, "Pad_Alpha", new Vector3(-8.8f, 0.06f, -1.2f));
-            CreatePressurePad(arenaRoot, pads, "Pad_Beta", new Vector3(8.8f, 0.06f, -1.2f));
+            // 5. DOOR SWITCH (PRESSURE PAD) -> LASER VAULT DOOR CIRCUITS (With Glowing Floor Power Cables!)
+            CreatePressurePad(arenaRoot, pads, "Pad_Alpha", new Vector3(-8.8f, 0.04f, -1.2f), new Vector3(0f, 0.06f, 6.2f));
+            CreatePressurePad(arenaRoot, pads, "Pad_Beta",  new Vector3( 8.8f, 0.04f, -1.2f), new Vector3(0f, 0.06f, 6.2f));
 
             CreateLaserGate(arenaRoot, gates, "Gate_North_Overdrive", new Vector3(0f, 0f, 6.2f), Quaternion.identity);
-            CreateLaserGate(arenaRoot, gates, "Gate_West_Shortcut", new Vector3(-5.5f, 0f, 3.2f), Quaternion.Euler(0f, 90f, 0f));
-            CreateLaserGate(arenaRoot, gates, "Gate_East_Shortcut", new Vector3(5.5f, 0f, 3.2f), Quaternion.Euler(0f, 90f, 0f));
+            CreateLaserGate(arenaRoot, gates, "Gate_West_Shortcut",   new Vector3(-5.5f, 0f, 3.4f), Quaternion.Euler(0f, 90f, 0f));
+            CreateLaserGate(arenaRoot, gates, "Gate_East_Shortcut",   new Vector3( 5.5f, 0f, 3.4f), Quaternion.Euler(0f, 90f, 0f));
 
             // 6. SHARED-COOLDOWN PHASE VENTS
-            CreatePhaseVent(arenaRoot, vents, "Vent_West", new Vector3(-10.2f, 0.06f, -5.2f), new Vector3(-2.5f, 0f, -6.8f));
-            CreatePhaseVent(arenaRoot, vents, "Vent_East", new Vector3(10.2f, 0.06f, -5.2f), new Vector3(2.5f, 0f, -6.8f));
+            CreatePhaseVent(arenaRoot, vents, "Vent_West", new Vector3(-10.2f, 0.04f, -5.2f), new Vector3(-2.5f, 0f, -6.8f));
+            CreatePhaseVent(arenaRoot, vents, "Vent_East", new Vector3( 10.2f, 0.04f, -5.2f), new Vector3( 2.5f, 0f, -6.8f));
 
-            // 7. DATA CORES & NORTH OVERDRIVE CORE
-            CreateDataCore(arenaRoot, cores, 0, "CORE W-1", 150, new Vector3(-8.8f, 0f, 2.2f), false);
-            CreateDataCore(arenaRoot, cores, 1, "CORE W-2", 120, new Vector3(-10.2f, 0f, -2.8f), false);
-            CreateDataCore(arenaRoot, cores, 2, "CORE E-1", 150, new Vector3(8.8f, 0f, 2.2f), false);
-            CreateDataCore(arenaRoot, cores, 3, "CORE E-2", 120, new Vector3(10.2f, 0f, -2.8f), false);
-            CreateDataCore(arenaRoot, cores, 4, "HUB CORE", 160, new Vector3(0f, 0f, 2.6f), false);
-            CreateDataCore(arenaRoot, cores, 5, "OVERDRIVE CORE", 350, new Vector3(0f, 0f, 8.8f), true);
+            // 7. GIANT SPINNING GOLD VAULT CORES (High-visibility beacons)
+            CreateDataCore(arenaRoot, cores, 0, "WEST CORE 1",  150, new Vector3(-8.8f, 0f,  2.4f), false);
+            CreateDataCore(arenaRoot, cores, 1, "WEST CORE 2",  120, new Vector3(-10.2f, 0f, -3.2f), false);
+            CreateDataCore(arenaRoot, cores, 2, "EAST CORE 1",  150, new Vector3( 8.8f, 0f,  2.4f), false);
+            CreateDataCore(arenaRoot, cores, 3, "EAST CORE 2",  120, new Vector3( 10.2f, 0f, -3.2f), false);
+            CreateDataCore(arenaRoot, cores, 4, "CENTER CORE",  160, new Vector3( 0.0f, 0f,  2.8f), false);
+            CreateDataCore(arenaRoot, cores, 5, "VAULT CORE",   350, new Vector3( 0.0f, 0f,  8.8f), true);
 
-            // 8. DETERMINISTIC 7.5-SECOND PATROL MECH-DRONES (Textured Quaternius Enemy_QuadShell & Enemy_EyeDrone)
-            CreateMechDrone(arenaRoot, drones, 0, "Enemy_QuadShell", new Vector3(-2.6f, 0.05f, -1.8f), 2.4f, 0f);
-            CreateMechDrone(arenaRoot, drones, 1, "Enemy_EyeDrone", new Vector3(2.6f, 0.85f, 1.8f), 2.4f, Mathf.PI);
+            // 8. DETERMINISTIC 7.5-SECOND PATROL MECH-DRONES
+            CreateMechDrone(arenaRoot, drones, 0, "Enemy_QuadShell", new Vector3(-2.6f, 0.05f, -1.8f), 2.2f, 0f);
+            CreateMechDrone(arenaRoot, drones, 1, "Enemy_EyeDrone",  new Vector3( 2.6f, 0.85f,  1.8f), 2.2f, Mathf.PI);
 
-            // Industrial Lab Props (Textured Crates & Barrels)
-            SpawnModel("Prop_Crate", "LabCrate_W", arenaRoot, new Vector3(-11.2f, 0f, 4.5f), Quaternion.Euler(0f, 25f, 0f), Vector3.one, ColWarmPutty, false);
-            SpawnModel("Prop_Barrel", "LabBarrel_E", arenaRoot, new Vector3(11.2f, 0f, 4.5f), Quaternion.identity, Vector3.one, ColSignalOrange, false);
+            // Industrial Lab Props
+            SpawnModel("Prop_Crate",  "LabCrate_W",  arenaRoot, new Vector3(-11.2f, 0f, 4.8f), Quaternion.Euler(0f, 25f, 0f), Vector3.one * 1.15f, ColWarmPutty, false);
+            SpawnModel("Prop_Barrel", "LabBarrel_E", arenaRoot, new Vector3( 11.2f, 0f, 4.8f), Quaternion.identity, Vector3.one * 1.15f, ColSignalOrange, false);
         }
 
-        private static void CreatePressurePad(Transform root, List<PressurePadNode> pads, string id, Vector3 pos)
+        private static void CreatePressurePad(Transform root, List<PressurePadNode> pads, string id, Vector3 pos, Vector3 targetGatePos)
         {
-            GameObject padObj = SpawnModel("Prop_AccessPoint", id, root, pos, Quaternion.identity, Vector3.one, ColSignalOrange, false);
-            GameObject ring = SpawnModel("Floor_Round", id + "_Base", padObj.transform, new Vector3(0f, 0.02f, 0f), Quaternion.identity, new Vector3(0.55f, 0.35f, 0.55f), ColAcidVolt, false, null, true);
-            Renderer indRend = ring.GetComponentInChildren<Renderer>();
+            GameObject padRoot = new GameObject(id);
+            padRoot.transform.SetParent(root, false);
+            padRoot.transform.localPosition = pos;
+
+            // Outer heavy steel ring + bright glowing inner switch plate
+            SpawnModel("Floor_Round", id + "_OuterRing", padRoot.transform, Vector3.zero, Quaternion.identity, new Vector3(0.52f, 0.35f, 0.52f), ColCarbon, false);
+            GameObject innerPlate = SpawnModel("Floor_Round", id + "_SwitchPlate", padRoot.transform, new Vector3(0f, 0.04f, 0f), Quaternion.identity, new Vector3(0.38f, 0.45f, 0.38f), ColAcidVolt, false, null, true);
+            BindQuaterniusTexturesAndMaterials(innerPlate, "Floor_Round", ColAcidVolt, 0.65f, true);
+            Renderer indRend = innerPlate.GetComponentInChildren<Renderer>();
+
+            // Control terminal standing at north edge of switch pad
+            SpawnModel("Prop_Computer", id + "_Terminal", padRoot.transform, new Vector3(0f, 0f, 1.35f), Quaternion.Euler(0f, 180f, 0f), Vector3.one * 0.9f, ColBoneWhite, false);
+
+            // Glowing Floor Power Conduit Line connecting Door Switch directly to Laser Gate!
+            GameObject wireGo = new GameObject(id + "_PowerConduit");
+            wireGo.transform.SetParent(root, false);
+            LineRenderer lr = wireGo.AddComponent<LineRenderer>();
+            lr.positionCount = 3;
+            lr.startWidth = 0.14f;
+            lr.endWidth = 0.14f;
+            lr.material = new Material(Shader.Find("Sprites/Default"));
+            lr.startColor = ColAcidVolt;
+            lr.endColor = ColSignalOrange;
+            Vector3 mid = new Vector3(pos.x * 0.6f, 0.06f, targetGatePos.z);
+            lr.SetPosition(0, new Vector3(pos.x, 0.06f, pos.z));
+            lr.SetPosition(1, mid);
+            lr.SetPosition(2, targetGatePos);
 
             pads.Add(new PressurePadNode
             {
                 Id = id,
                 Position = pos,
-                VisualRoot = padObj,
+                VisualRoot = padRoot,
                 IndicatorRenderer = indRend,
                 CapacitorHoldTimer = 0f
             });
@@ -519,20 +586,44 @@ namespace ChronoHeist
 
         private static void CreateLaserGate(Transform root, List<LaserGateNode> gates, string id, Vector3 pos, Quaternion rot)
         {
-            GameObject frameObj = SpawnModel("Door_Frame", id + "_Frame", root, pos, rot, Vector3.one, ColCarbon, false);
-            GameObject doorObj = SpawnModel("Door_Gate", id + "_LaserBarrier", frameObj.transform, Vector3.zero, Quaternion.identity, new Vector3(1.0f, 1.0f, 0.4f), ColInfraredRed, false, null, true);
-            BindQuaterniusTexturesAndMaterials(doorObj, "Door_Gate", ColInfraredRed, 0.9f, true);
+            GameObject frameObj = SpawnModel("Door_Frame", id + "_Frame", root, pos, rot, new Vector3(0.76f, 0.62f, 0.9f), ColCarbon, false);
+
+            // Centered Blast Gate + 3 Glowing Red Laser Beams spanning the entire doorway
+            GameObject doorContainer = new GameObject(id + "_LaserBarrier");
+            doorContainer.transform.SetParent(frameObj.transform, false);
+            doorContainer.transform.localPosition = Vector3.zero;
+
+            GameObject doorMesh = SpawnModel("Door_Gate", "BlastDoorPanel", doorContainer.transform, Vector3.zero, Quaternion.identity, new Vector3(1.95f, 1.0f, 0.6f), ColInfraredRed, false, null, true);
+            BindQuaterniusTexturesAndMaterials(doorMesh, "Door_Gate", ColInfraredRed, 0.75f, true);
+
+            // Add 3 horizontal high-visibility glowing red laser bars
+            for (int b = 0; b < 3; b++)
+            {
+                GameObject beamGo = new GameObject($"LaserBeam_{b}");
+                beamGo.transform.SetParent(doorContainer.transform, false);
+                LineRenderer lr = beamGo.AddComponent<LineRenderer>();
+                lr.useWorldSpace = false;
+                lr.positionCount = 2;
+                lr.startWidth = 0.11f;
+                lr.endWidth = 0.11f;
+                lr.material = new Material(Shader.Find("Sprites/Default"));
+                lr.startColor = ColInfraredRed;
+                lr.endColor = ColSignalOrange;
+                float y = 1.0f + b * 1.15f;
+                lr.SetPosition(0, new Vector3(-1.9f, y, -0.18f));
+                lr.SetPosition(1, new Vector3( 1.9f, y, -0.18f));
+            }
 
             BoxCollider bc = frameObj.AddComponent<BoxCollider>();
-            bc.size = new Vector3(2.6f, 2.8f, 0.45f);
-            bc.center = new Vector3(0f, 1.4f, 0f);
+            bc.size = new Vector3(3.8f, 4.2f, 0.55f);
+            bc.center = new Vector3(0f, 2.1f, 0f);
 
             gates.Add(new LaserGateNode
             {
                 Id = id,
                 Position = pos,
                 FrameObj = frameObj,
-                GateDoorObj = doorObj,
+                GateDoorObj = doorContainer,
                 BlockingCollider = bc,
                 IsOpen = false,
                 OpenBlend = 0f
@@ -541,7 +632,7 @@ namespace ChronoHeist
 
         private static void CreatePhaseVent(Transform root, List<PhaseVentNode> vents, string id, Vector3 pos, Vector3 exitPos)
         {
-            GameObject ventObj = SpawnModel("Prop_Vent", id, root, pos, Quaternion.identity, new Vector3(0.85f, 0.5f, 0.85f), ColAcidVolt, false);
+            GameObject ventObj = SpawnModel("Prop_Vent", id, root, pos, Quaternion.identity, new Vector3(0.95f, 1.0f, 0.95f), ColAcidVolt, false);
             vents.Add(new PhaseVentNode
             {
                 Id = id,
@@ -554,21 +645,30 @@ namespace ChronoHeist
 
         private static void CreateDataCore(Transform root, List<DataCoreNode> cores, int id, string label, int points, Vector3 pos, bool isOverdrive)
         {
-            GameObject pedObj = SpawnModel("Prop_ItemHolder", $"CorePedestal_{id}", root, pos, Quaternion.identity, Vector3.one, ColCarbon, false);
-            string coreModel = isOverdrive ? "Core_Chest" : "Core_Tube";
+            GameObject pedObj = SpawnModel("Prop_ItemHolder", $"CorePedestal_{id}", root, pos, Quaternion.identity, Vector3.one * 1.35f, ColCarbon, false);
             Color coreColor = isOverdrive ? ColAmberGold : ColSignalOrange;
-            Vector3 coreScale = isOverdrive ? Vector3.one * 0.65f : Vector3.one * 1.15f;
 
-            GameObject coreMesh = SpawnModel(coreModel, $"DataCore_{id}", root, pos + Vector3.up * 0.95f, Quaternion.identity, coreScale, coreColor, false);
-            BindQuaterniusTexturesAndMaterials(coreMesh, coreModel, coreColor, 0.45f, false);
+            // High-visibility glowing treasure ring around pedestal base
+            GameObject baseHalo = SpawnModel("Floor_Round", $"CoreHalo_{id}", pedObj.transform, new Vector3(0f, 0.02f, 0f), Quaternion.identity, new Vector3(0.26f, 0.2f, 0.26f), coreColor, false, null, true);
+            BindQuaterniusTexturesAndMaterials(baseHalo, "Floor_Round", coreColor, 0.7f, true);
+
+            if (isOverdrive)
+            {
+                SpawnModel("Core_Chest", "VaultChestPedestal", pedObj.transform, new Vector3(0f, 0f, -0.55f), Quaternion.identity, Vector3.one * 0.65f, ColAmberGold, false);
+            }
+
+            // Giant 1.0m glowing spinning Core_Tube so players can spot Cores across the entire arena!
+            Vector3 coreScale = isOverdrive ? new Vector3(3.8f, 3.6f, 3.8f) : new Vector3(3.1f, 3.0f, 3.1f);
+            GameObject coreMesh = SpawnModel("Core_Tube", $"DataCore_{id}", root, pos + Vector3.up * 0.65f, Quaternion.identity, coreScale, coreColor, false);
+            BindQuaterniusTexturesAndMaterials(coreMesh, "Core_Tube", coreColor, 0.85f, true);
 
             cores.Add(new DataCoreNode
             {
                 Id = id,
                 Label = label,
                 BasePoints = points,
-                HomePosition = pos + Vector3.up * 0.95f,
-                CurrentPosition = pos + Vector3.up * 0.95f,
+                HomePosition = pos + Vector3.up * 0.65f,
+                CurrentPosition = pos + Vector3.up * 0.65f,
                 Velocity = Vector3.zero,
                 PedestalObj = pedObj,
                 CoreMeshObj = coreMesh,
@@ -582,7 +682,7 @@ namespace ChronoHeist
 
         private static void CreateMechDrone(Transform root, List<MechDroneNode> drones, int id, string modelName, Vector3 pivot, float radius, float phase)
         {
-            GameObject droneObj = SpawnModel(modelName, $"MechDrone_{id}", root, pivot, Quaternion.identity, Vector3.one * 0.75f, Color.white, false);
+            GameObject droneObj = SpawnModel(modelName, $"MechDrone_{id}", root, pivot, Quaternion.identity, Vector3.one * 0.72f, Color.white, false);
             drones.Add(new MechDroneNode
             {
                 Id = id,

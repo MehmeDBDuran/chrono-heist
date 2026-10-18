@@ -1,17 +1,18 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Space+Grotesk:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Space+Grotesk:wght@500;600;700;800&display=swap');
 
 :root {
   --bg-putty: #eae6df;
-  --bg-bone: #f4f1ea;
-  --bg-carbon: #141413;
-  --bg-carbon-elevated: #1e1e1c;
-  --ink-dark: #141413;
-  --ink-light: #f4f1ea;
-  --ink-muted: #6e6a63;
-  --hairline-dark: #141413;
-  --hairline-light: rgba(244, 241, 234, 0.22);
+  --bg-bone: #f6f4ee;
+  --bg-carbon: #161614;
+  --bg-carbon-elevated: #22221f;
+  --ink-dark: #161614;
+  --ink-light: #f6f4ee;
+  --ink-muted: #5f5b54;
+  --hairline-dark: #161614;
+  --hairline-light: rgba(246, 244, 238, 0.22);
   --signal-orange: #ff4d00;
   --acid-volt: #c8ff00;
+  --emerald-ok: #12b866;
   --infrared-red: #e61919;
   --amber-gold: #ffb800;
   --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -56,7 +57,85 @@ body {
   background: var(--bg-putty);
 }
 
-/* Industrial Brutalist Telemetry Blocks */
+/* 3D World-to-Screen Floating Callout Pins */
+.world-pins-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+  overflow: clip;
+}
+
+.world-pin {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 5px 11px;
+  border-radius: 6px;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  border: 2px solid var(--ink-dark);
+  box-shadow: 0 4px 12px rgba(20, 20, 19, 0.28), 2px 2px 0px var(--ink-dark);
+  transition: left 0.06s linear, top 0.06s linear;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.world-pin::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 7px 6px 0;
+  border-style: solid;
+  border-color: var(--ink-dark) transparent transparent;
+}
+
+.world-pin-orange {
+  background: var(--signal-orange);
+  color: var(--ink-light);
+}
+
+.world-pin-green {
+  background: #14261c;
+  color: var(--acid-volt);
+  border-color: var(--acid-volt);
+}
+
+.world-pin-red {
+  background: var(--infrared-red);
+  color: var(--ink-light);
+}
+
+.world-pin-gold {
+  background: var(--bg-carbon);
+  color: var(--amber-gold);
+  border-color: var(--amber-gold);
+}
+
+.world-pin-target {
+  background: var(--acid-volt);
+  color: var(--ink-dark);
+  font-weight: 800;
+  font-size: 0.84rem;
+  padding: 7px 14px;
+  animation: targetPinBounce 0.9s infinite alternate ease-in-out;
+}
+
+@keyframes targetPinBounce {
+  from {
+    transform: translate(-50%, -100%) scale(1);
+  }
+  to {
+    transform: translate(-50%, -114%) scale(1.04);
+  }
+}
+
+/* Top HUD Bar */
 .hud-top-bar {
   position: absolute;
   top: 14px;
@@ -66,7 +145,7 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   pointer-events: none;
-  z-index: 20;
+  z-index: 22;
   gap: 12px;
 }
 
@@ -75,51 +154,59 @@ body {
 }
 
 .brutalist-block {
-  background: var(--bg-carbon);
+  background: rgba(22, 22, 20, 0.95);
   color: var(--ink-light);
-  border: 1.5px solid var(--ink-dark);
-  box-shadow: 3px 3px 0px var(--ink-dark);
+  border: 2px solid var(--ink-dark);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(20, 20, 19, 0.18), 3px 3px 0px var(--ink-dark);
 }
 
 .brutalist-bone {
-  background: var(--bg-bone);
+  background: rgba(246, 244, 238, 0.96);
+  backdrop-filter: blur(8px);
   color: var(--ink-dark);
-  border: 1.5px solid var(--ink-dark);
-  box-shadow: 3px 3px 0px var(--ink-dark);
+  border: 2px solid var(--ink-dark);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(20, 20, 19, 0.16), 4px 4px 0px var(--ink-dark);
 }
 
 .tactical-btn {
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-family: var(--font-display);
+  font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  padding: 8px 13px;
-  border: 1.5px solid var(--ink-dark);
+  letter-spacing: 0.01em;
+  padding: 8px 14px;
+  border-radius: 7px;
+  border: 2px solid var(--ink-dark);
   background: var(--bg-bone);
   color: var(--ink-dark);
   cursor: pointer;
-  transition: transform 0.08s ease, background-color 0.1s ease;
+  transition: transform 0.08s ease, background-color 0.12s ease, box-shadow 0.12s ease;
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  box-shadow: 2px 2px 0px var(--ink-dark);
 }
 
 .tactical-btn:hover {
   background: var(--acid-volt);
+  color: var(--ink-dark);
   transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px var(--ink-dark);
 }
 
 .tactical-btn:active {
   transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px var(--ink-dark);
 }
 
 .tactical-btn-primary {
   background: var(--signal-orange);
   color: var(--ink-light);
   border-color: var(--ink-dark);
-  font-size: 0.88rem;
-  padding: 11px 22px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  padding: 10px 20px;
   box-shadow: 3px 3px 0px var(--ink-dark);
 }
 
@@ -144,23 +231,24 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  min-width: 320px;
+  min-width: 340px;
 }
 
 .loop-segments {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 5px;
+  gap: 6px;
   width: 100%;
 }
 
 .loop-pill {
-  padding: 5px 10px;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 800;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+  font-weight: 700;
   text-align: center;
-  border: 1.5px solid var(--ink-dark);
+  border: 2px solid var(--ink-dark);
   background: var(--bg-bone);
   color: var(--ink-muted);
 }
@@ -173,30 +261,34 @@ body {
 .loop-pill.active {
   background: var(--signal-orange);
   color: var(--ink-light);
+  font-weight: 800;
 }
 
 /* Tug-of-War Score Bar */
 .tug-bar-wrap {
   width: 100%;
   background: var(--bg-carbon);
-  border: 1.5px solid var(--ink-dark);
-  padding: 6px 10px;
+  border: 2px solid var(--ink-dark);
+  border-radius: 8px;
+  padding: 7px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  box-shadow: 2px 2px 0px var(--ink-dark);
 }
 
 .tug-scores {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-variant-numeric: tabular-nums;
 }
 
 .tug-track {
   width: 100%;
-  height: 7px;
+  height: 8px;
+  border-radius: 4px;
   background: var(--infrared-red);
   position: relative;
   overflow: clip;
@@ -209,45 +301,112 @@ body {
   transition: width 0.15s ease-out;
 }
 
-/* Tethered First-Time User Tour Pill (persistent-app-tours pattern) */
-.tether-tour-pill {
-  position: relative;
+/* Interactive 4-Step Tutorial Coach Card */
+.tutorial-coach-card {
+  position: absolute;
+  top: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100% - 32px));
+  z-index: 28;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tutorial-step-pills {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.tutorial-step-pill {
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  border: 1.5px solid var(--ink-dark);
+  background: var(--bg-putty);
+  color: var(--ink-muted);
+}
+
+.tutorial-step-pill.done {
+  background: var(--ink-dark);
+  color: var(--acid-volt);
+}
+
+.tutorial-step-pill.current {
   background: var(--signal-orange);
   color: var(--ink-light);
-  border: 2px solid var(--ink-dark);
-  box-shadow: 4px 4px 0px var(--ink-dark);
-  padding: 8px 12px;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 800;
+}
+
+.tutorial-progress-track {
+  width: 100%;
+  height: 10px;
+  background: var(--bg-putty);
+  border: 1.5px solid var(--ink-dark);
+  border-radius: 5px;
+  overflow: clip;
+}
+
+.tutorial-progress-fill {
+  height: 100%;
+  background: var(--emerald-ok);
+  transition: width 0.15s ease-out;
+}
+
+/* How to Play 3-Step Briefing Card in Lobby */
+.how-to-play-card {
+  position: absolute;
+  top: 84px;
+  left: 16px;
+  width: min(430px, calc(100% - 32px));
+  z-index: 25;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.how-step-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--bg-putty);
+  border: 1.5px solid rgba(22, 22, 20, 0.18);
+}
+
+.how-step-badge {
+  min-width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-carbon);
+  color: var(--acid-volt);
+  font-weight: 800;
+  font-size: 0.82rem;
   display: flex;
   align-items: center;
-  gap: 10px;
-  animation: pulseSlide 1.4s infinite alternate ease-in-out;
-  z-index: 35;
+  justify-content: center;
+  margin-top: 1px;
 }
 
-@keyframes pulseSlide {
-  from {
-    transform: translateY(0px);
-  }
-  to {
-    transform: translateY(-4px);
-  }
-}
-
-/* Scrollable Tactical Lists (modern-web-guidance Section 6) */
+/* Scrollable Tactical Lists */
 .tactical-scroll-list {
-  max-block-size: 230px;
+  max-block-size: 210px;
   overflow-y: auto;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
 
-/* Bottom Lobby Dock (Leaves 75%+ of 3D Turntable Unobstructed) */
+/* Bottom Lobby Dock */
 .lobby-bottom-dock {
   position: absolute;
-  bottom: 16px;
+  bottom: 14px;
   left: 16px;
   right: 16px;
   display: flex;
@@ -260,18 +419,18 @@ body {
 /* Contextual In-Match Micro-Prompt */
 .micro-cue-banner {
   position: absolute;
-  bottom: 74px;
+  bottom: 72px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-carbon);
   color: var(--ink-light);
   border: 2px solid var(--signal-orange);
-  box-shadow: 4px 4px 0px var(--ink-dark);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25), 3px 3px 0px var(--ink-dark);
   padding: 9px 18px;
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  font-weight: 700;
   z-index: 25;
   pointer-events: none;
   text-align: center;
@@ -279,30 +438,32 @@ body {
 
 .event-toast-banner {
   position: absolute;
-  top: 122px;
+  bottom: 122px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--acid-volt);
   color: var(--ink-dark);
   border: 2px solid var(--ink-dark);
-  box-shadow: 4px 4px 0px var(--ink-dark);
-  padding: 8px 18px;
-  font-family: var(--font-mono);
-  font-size: 0.84rem;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25), 4px 4px 0px var(--ink-dark);
+  padding: 9px 20px;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
   font-weight: 800;
-  letter-spacing: 0.05em;
-  z-index: 26;
+  z-index: 29;
   pointer-events: none;
+  text-align: center;
 }
 
 /* Native Modal Dialog */
 dialog.tactical-dialog {
   margin: auto;
   border: 2px solid var(--ink-dark);
+  border-radius: 12px;
   background: var(--bg-bone);
   color: var(--ink-dark);
   box-shadow: 8px 8px 0px var(--ink-dark);
-  padding: 20px;
+  padding: 22px;
   max-width: 520px;
   width: calc(100% - 32px);
 }

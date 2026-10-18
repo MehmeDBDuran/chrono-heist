@@ -122,6 +122,11 @@ namespace ChronoHeist
         private float _eventBannerTimer = 0f;
         private bool _hasMovedInLoop1 = false;
         private bool _tutorialSlowMoTriggered = false;
+        private float _tutorialPadHoldAccum = 0f;
+        private float _tutorialStepAdvanceDelay = 0f;
+        private string _tutorialTitle = "";
+        private string _tutorialDetail = "";
+        private int _tutorialProgress = 0;
 
         // Recorded Timelines
         private readonly List<LoopTimelineData> _alliedRecordings = new List<LoopTimelineData>();
@@ -228,14 +233,16 @@ namespace ChronoHeist
                 ? CyberVaultSceneBuilder.ColInfraredRed
                 : (isEcho ? CyberVaultSceneBuilder.ColAcidVolt : CyberVaultSceneBuilder.ColSignalOrange);
 
-            // Use Quaternius segmented cybernetic operative chassis (Char_Mannequin: M_Main armor plates + M_Joints carbon frame)
+            // Always use clothed/armored Quaternius Cybernetic Operative chassis (Char_Mannequin)
+            string charModel = "Char_Mannequin";
+
             GameObject root = CyberVaultSceneBuilder.SpawnModel(
-                "Char_Mannequin",
+                charModel,
                 objName,
                 _arenaRoot,
                 pos,
                 rot,
-                Vector3.one * 1.02f,
+                Vector3.one * 1.05f,
                 bodyColor,
                 false,
                 null,
@@ -243,39 +250,24 @@ namespace ChronoHeist
 
             if (isEcho)
             {
-                CyberVaultSceneBuilder.BindQuaterniusTexturesAndMaterials(root, "Char_Mannequin", bodyColor, isRival ? 0.75f : 0.45f, true);
+                CyberVaultSceneBuilder.BindQuaterniusTexturesAndMaterials(root, charModel, bodyColor, isRival ? 0.75f : 0.45f, true);
             }
 
-            // 1. Attach Glowing Tactical Cyber-Visor to Head bone
-            Transform headBone = FindDeepChild(root.transform, "Head");
-            if (headBone != null)
-            {
-                GameObject visor = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                visor.name = "CyberVisor";
-                Destroy(visor.GetComponent<Collider>());
-                visor.transform.SetParent(headBone, false);
-                visor.transform.localPosition = new Vector3(0f, 0.11f, 0.09f);
-                visor.transform.localRotation = Quaternion.identity;
-                visor.transform.localScale = new Vector3(0.17f, 0.055f, 0.12f);
-                CyberVaultSceneBuilder.BindQuaterniusTexturesAndMaterials(visor, "Visor", visorColor, 1.2f, true);
-            }
+            // 1. High-Visibility Tactical Ground Ring under Operative's feet (Orange = YOU, Acid Green = PAST YOU, Red = RIVAL)
+            GameObject footRing = CyberVaultSceneBuilder.SpawnModel(
+                "Floor_Round",
+                "OperativeFootRing",
+                root.transform,
+                new Vector3(0f, 0.03f, 0f),
+                Quaternion.identity,
+                new Vector3(0.24f, 0.25f, 0.24f),
+                visorColor,
+                false,
+                null,
+                true);
+            CyberVaultSceneBuilder.BindQuaterniusTexturesAndMaterials(footRing, "Floor_Round", visorColor, 0.85f, true);
 
-            // 2. Attach Chrono Core Pack to upper back (spine_03)
-            Transform spineBone = FindDeepChild(root.transform, "spine_03");
-            if (spineBone != null)
-            {
-                CyberVaultSceneBuilder.SpawnModel(
-                    "Core_Tube",
-                    "ChronoBackModule",
-                    spineBone,
-                    new Vector3(0f, 0.08f, -0.14f),
-                    Quaternion.identity,
-                    Vector3.one * 0.42f,
-                    visorColor,
-                    false);
-            }
-
-            // 3. Attach 3D Weapon from Quaternius Sci-Fi Essentials directly to hand_r in local space
+            // 2. Attach 3D Weapon from Quaternius Sci-Fi Essentials directly to hand_r
             string weaponResource = GetWeaponResourceName(weaponId);
             Transform handSocket = FindDeepChild(root.transform, "hand_r") ?? FindDeepChild(root.transform, "Hand_R") ?? root.transform;
             Color weaponColor = isRival ? CyberVaultSceneBuilder.ColInfraredRed : CyberVaultSceneBuilder.ColSignalOrange;
@@ -289,7 +281,7 @@ namespace ChronoHeist
                 weaponColor,
                 false);
 
-            // 4. Attach Procedural + Clip Rig Animator so character NEVER T-poses and always faces root.forward
+            // 4. Attach Rig Animator so character stands & sprints naturally and always faces root.forward
             OperativeRigAnimator rigAnim = root.AddComponent<OperativeRigAnimator>();
             rigAnim.Initialize(root.transform, phaseOffset);
 
@@ -412,6 +404,7 @@ namespace ChronoHeist
         public void ReturnToArmoryLobby()
         {
             _isMatchRunning = false;
+            _isTutorialMode = false;
             Time.timeScale = 1.0f;
             if (_cameraRig != null)
             {
@@ -420,6 +413,69 @@ namespace ChronoHeist
             ClearActiveMatchActors();
             RebuildArenaAndTurntable(_currentSectorId);
             BroadcastHudState();
+        }
+
+        public void SkipTutorialStep()
+        {
+            if (!_isMatchRunning || !_isTutorialMode) return;
+            Time.timeScale = 1.0f;
+            _tutorialStepAdvanceDelay = 0f;
+
+            if (_currentLoopIndex == 0)
+            {
+                _playerScore += 150;
+                _currentLoopRecording = BuildCleanPadAlphaRecording();
+                ShowEventBanner("STEP 1 COMPLETED — PAST YOU WILL NOW HOLD THE DOOR SWITCH!");
+            }
+            else if (_currentLoopIndex == 1)
+            {
+                _playerScore += 350;
+                _coresExtractedCount = Mathf.Max(1, _coresExtractedCount + 1);
+                ShowEventBanner("STEP 2 COMPLETED — GOLD VAULT CORE EXTRACTED (+350 PTS)!");
+            }
+            else if (_currentLoopIndex == 2)
+            {
+                _playerScore += 250;
+                _alleyOopsLanded = Mathf.Max(1, _alleyOopsLanded + 1);
+                ShowEventBanner("STEP 3 COMPLETED — CORE THROW MASTERED (+250 PTS)!");
+            }
+            else
+            {
+                _playerScore += 300;
+                _paradoxesTriggered = Mathf.Max(1, _paradoxesTriggered + 1);
+                ShowEventBanner("TUTORIAL COMPLETE — YOU ARE READY FOR THE HEIST!");
+            }
+
+            CompleteCurrentLoop();
+        }
+
+        private LoopTimelineData BuildCleanPadAlphaRecording()
+        {
+            LoopTimelineData tl = new LoopTimelineData
+            {
+                loopIndex = 0,
+                rigClass = _playerCrewClasses[0]
+            };
+            Vector3 start = new Vector3(-4.5f, 0f, -8.2f);
+            Vector3 padPos = new Vector3(-8.8f, 0f, -1.2f);
+            for (int f = 0; f <= 300; f++)
+            {
+                float t = f * 0.05f;
+                Vector3 pos = t < 2.2f ? Vector3.Lerp(start, padPos, t / 2.2f) : padPos;
+                float yaw = t < 2.2f ? -32f : 0f;
+                int anim = t < 2.2f ? 1 : 0;
+                tl.frames.Add(new EchoFrameSnapshot
+                {
+                    t = t,
+                    x = pos.x,
+                    z = pos.z,
+                    yaw = yaw,
+                    anim = anim,
+                    carriedCoreId = -1,
+                    thrownCoreId = -1
+                });
+            }
+            return tl;
         }
 
         public void StartHeistMatch(string configStr)
@@ -460,6 +516,8 @@ namespace ChronoHeist
             _alleyOopsLanded = 0;
             _currentLoopIndex = 0;
             _hasMovedInLoop1 = false;
+            _tutorialPadHoldAccum = 0f;
+            _tutorialStepAdvanceDelay = 0f;
 
             if (_cameraRig != null)
             {
@@ -469,6 +527,7 @@ namespace ChronoHeist
             BeginLoop(0);
             _isMatchRunning = true;
             WebGLBridge.TriggerSynth("match_deploy", 1.0f);
+            BroadcastHudState();
         }
 
         private void BuildRivalSyntheticTimelines()
@@ -477,40 +536,26 @@ namespace ChronoHeist
 
             if (_isTutorialMode)
             {
-                // In Sector 00 Tutorial:
-                // Loop 1 & Loop 2 have zero rivals (focus on Pad Alpha + Throw Window + Alley-Oop Catch)
-                // Loop 3 spawns 1 Rival Carrier in Center Hub to teach Backstab ([SPACE])
-                // Loop 4 spawns 1 Rival Pad-Holder on Pad Beta + 1 Rival Overdrive Runner to teach Causal Laser Wipeout!
-                for (int r = 0; r < 2; r++)
+                // In Interactive Tutorial Mode, Step 4 spawns 1 clear Red Rival Thief patrolling the Center Hub!
+                LoopTimelineData tl = new LoopTimelineData { loopIndex = 0, rigClass = "infiltrator" };
+                for (int f = 0; f <= 300; f++)
                 {
-                    LoopTimelineData tl = new LoopTimelineData { loopIndex = r, rigClass = "infiltrator" };
-                    for (int f = 0; f <= 300; f++)
+                    float t = f * 0.05f;
+                    float cycle = Mathf.PingPong(t * 0.45f, 1.0f);
+                    Vector3 pos = Vector3.Lerp(new Vector3(-1.8f, 0f, -2.2f), new Vector3(2.2f, 0f, 1.4f), cycle);
+                    float yaw = 45f;
+                    tl.frames.Add(new EchoFrameSnapshot
                     {
-                        float t = f * 0.05f;
-                        Vector3 pos;
-                        float yaw = 0f;
-                        int carried = -1;
-                        if (r == 0)
-                        {
-                            // Rival A stands on Pad Beta (8.8, -1.2) facing East so player can easily flank or knock off pad!
-                            pos = Vector3.Lerp(new Vector3(4.0f, 0f, -6.5f), new Vector3(8.8f, 0f, -1.2f), Mathf.Clamp01(t / 3.0f));
-                            yaw = 90f;
-                            if (t >= 3.5f && t <= 11.5f) carried = 4;
-                        }
-                        else
-                        {
-                            // Rival B runs up Center Hub through North Laser Gate (0, 6.2) at t = 6.5s!
-                            if (t < 6.5f)
-                                pos = Vector3.Lerp(new Vector3(2.0f, 0f, -6.0f), new Vector3(0f, 0f, 8.8f), t / 6.5f);
-                            else
-                                pos = Vector3.Lerp(new Vector3(0f, 0f, 8.8f), new Vector3(0f, 0f, -8.2f), (t - 6.5f) / 7.5f);
-                            yaw = t < 6.5f ? 0f : 180f;
-                            carried = t >= 5.5f ? 5 : -1;
-                        }
-                        tl.frames.Add(new EchoFrameSnapshot { t = t, x = pos.x, z = pos.z, yaw = yaw, anim = 1, carriedCoreId = carried, thrownCoreId = -1 });
-                    }
-                    _rivalRecordings.Add(tl);
+                        t = t,
+                        x = pos.x,
+                        z = pos.z,
+                        yaw = yaw,
+                        anim = 1,
+                        carriedCoreId = 4,
+                        thrownCoreId = -1
+                    });
                 }
+                _rivalRecordings.Add(tl);
                 return;
             }
 
@@ -610,6 +655,8 @@ namespace ChronoHeist
             _activeDecoyPos = null;
             _activeMinePos = null;
             _tutorialSlowMoTriggered = false;
+            _tutorialPadHoldAccum = 0f;
+            _tutorialStepAdvanceDelay = 0f;
             Time.timeScale = 1.0f;
 
             // Reset Cores & Gates at the start of every 15.0s Time Loop
@@ -638,13 +685,13 @@ namespace ChronoHeist
             _playerObj = CreateOperativeVisual($"Player_L{loopIdx + 1}", _playerPos, Quaternion.identity, currentRigClass, _equippedSkinId, _equippedWeaponId, false, false);
             _playerAnimator = _playerObj.GetComponentInChildren<Animator>();
 
-            // Create spatial floor tether LineRenderer on Player
+            // Create spatial floor tether LineRenderer on Player (bright guiding beam on the floor)
             GameObject tetherGo = new GameObject("SpatialFloorTether");
             tetherGo.transform.SetParent(_playerObj.transform);
             _tetherLine = tetherGo.AddComponent<LineRenderer>();
             _tetherLine.positionCount = 2;
-            _tetherLine.startWidth = 0.14f;
-            _tetherLine.endWidth = 0.08f;
+            _tetherLine.startWidth = 0.22f;
+            _tetherLine.endWidth = 0.14f;
             _tetherLine.material = new Material(Shader.Find("Sprites/Default"));
             _tetherLine.startColor = CyberVaultSceneBuilder.ColSignalOrange;
             _tetherLine.endColor = CyberVaultSceneBuilder.ColAcidVolt;
@@ -667,24 +714,26 @@ namespace ChronoHeist
                 SpawnEchoActor(_alliedRecordings[a], false, a + 1);
             }
 
-            // Spawn Rival Echoes
+            // Spawn Rival Echoes (In Tutorial Mode, only Step 4 spawns the Red Rival Thief!)
             int rivalCount = _isTutorialMode
-                ? (loopIdx < 2 ? 0 : (loopIdx == 2 ? 1 : 2))
+                ? (loopIdx == 3 ? 1 : 0)
                 : Mathf.Min(loopIdx + 1, _rivalRecordings.Count);
 
-            for (int r = 0; r < rivalCount; r++)
+            for (int r = 0; r < rivalCount && r < _rivalRecordings.Count; r++)
             {
                 SpawnEchoActor(_rivalRecordings[r], true, 101 + r);
             }
 
-            // In Tutorial Loop 2, if player didn't throw a core in Loop 1, inject a guaranteed Allied Pass at t=4.5s so Loop 2 always teaches catching!
-            if (_isTutorialMode && loopIdx == 1 && _cores.Count > 0)
+            if (_isTutorialMode)
             {
-                ShowEventBanner("LOOP 2/4: CATCH YOUR PAST SELF'S PASS IN CENTER HUB!");
+                if (loopIdx == 0) ShowEventBanner("STEP 1/4: WALK ONTO THE GREEN DOOR SWITCH ON THE LEFT!");
+                else if (loopIdx == 1) ShowEventBanner("STEP 2/4: PAST YOU HOLDS THE SWITCH — RUN NORTH & STEAL THE GOLD VAULT CORE!");
+                else if (loopIdx == 2) ShowEventBanner("STEP 3/4: PICK UP A DATA CORE & PRESS [E] TO THROW IT!");
+                else ShowEventBanner("STEP 4/4: RUN UP TO THE RED RIVAL THIEF & PRESS [SPACE]!");
             }
             else if (loopIdx > 0)
             {
-                ShowEventBanner($"LOOP {loopIdx + 1}/4 — {loopIdx} ALLIED ECHO{(loopIdx > 1 ? "ES" : "")} ACTIVE");
+                ShowEventBanner($"LOOP {loopIdx + 1}/4 — {loopIdx} PAST SELF ECHO{(loopIdx > 1 ? "ES" : "")} HELPING YOU!");
             }
         }
 
@@ -740,14 +789,14 @@ namespace ChronoHeist
         private void ShowEventBanner(string text)
         {
             _lastEventBanner = text;
-            _eventBannerTimer = 2.6f;
+            _eventBannerTimer = 3.2f;
         }
 
         private void Update()
         {
             if (!_isMatchRunning)
             {
-                // Keep Lobby 3D facility alive with patrolling Mech-Drones and rotating Data Cores!
+                // Keep Lobby 3D facility alive with patrolling Mech-Drones, rotating Data Cores, and 3D Zone Callout Pins!
                 float lobbyDt = Time.unscaledDeltaTime;
                 _loopTimer = (_loopTimer + lobbyDt) % 15.0f;
                 UpdateMechDrones(lobbyDt);
@@ -757,6 +806,12 @@ namespace ChronoHeist
                     {
                         _cores[i].CoreMeshObj.transform.Rotate(Vector3.up, lobbyDt * 95f, Space.World);
                     }
+                }
+                _hudBroadcastAccum += lobbyDt;
+                if (_hudBroadcastAccum >= 0.08f)
+                {
+                    _hudBroadcastAccum = 0f;
+                    BroadcastHudState();
                 }
                 return;
             }
@@ -776,8 +831,24 @@ namespace ChronoHeist
                 return;
             }
 
+            if (_tutorialStepAdvanceDelay > 0f)
+            {
+                _tutorialStepAdvanceDelay -= Time.unscaledDeltaTime;
+                if (_tutorialStepAdvanceDelay <= 0f)
+                {
+                    CompleteCurrentLoop();
+                    return;
+                }
+            }
+
             float dt = Time.deltaTime;
             _loopTimer += dt;
+
+            // In Tutorial Mode, never let the 15s timer expire before the player completes the current step objective!
+            if (_isTutorialMode && _loopTimer >= 12.5f && _tutorialStepAdvanceDelay <= 0f)
+            {
+                _loopTimer = 4.0f;
+            }
 
             UpdatePlayerInputAndPhysics(dt);
             UpdateEchoActors(dt);
@@ -803,8 +874,8 @@ namespace ChronoHeist
                 BroadcastHudState();
             }
 
-            // Check end of 15.0s loop
-            if (_loopTimer >= LOOP_DURATION)
+            // Check end of 15.0s loop (only auto-completes in non-tutorial matches!)
+            if (!_isTutorialMode && _loopTimer >= LOOP_DURATION)
             {
                 CompleteCurrentLoop();
             }
@@ -951,7 +1022,8 @@ namespace ChronoHeist
 
                 Vector3 echoPos = echo.RootObj.transform.position;
                 float dist = Vector3.Distance(_playerPos, echoPos);
-                if (dist > 2.65f) continue;
+                float strikeRange = _isTutorialMode ? 3.85f : 2.65f;
+                if (dist > strikeRange) continue;
 
                 // Check Rival Echo's Frontal Reflex Guard Cone (90 deg standard, 140 deg for Enforcer)
                 Vector3 echoForward = echo.RootObj.transform.forward;
@@ -959,23 +1031,26 @@ namespace ChronoHeist
                 float angleFromFront = Vector3.Angle(echoForward, toPlayer);
                 float guardHalfAngle = (echo.RigClass == "enforcer") ? 65f : 42f;
 
-                // In Sector 00 Tutorial Loop 4, allow knocking the Pad Holder off Pad Beta from any angle
-                bool isTutorialPadKnock = _isTutorialMode && _currentLoopIndex == 3;
-
-                if (angleFromFront <= guardHalfAngle && !isTutorialPadKnock)
+                if (angleFromFront <= guardHalfAngle && !_isTutorialMode)
                 {
                     // FRONTAL REFLEX PARRY! Rival Echo counters frontal slash!
                     _playerStunTimer = 0.85f;
                     _dashActiveTimer = 0f;
                     DropPlayerCore();
                     WebGLBridge.TriggerSynth("frontal_parry", 1.0f);
-                    ShowEventBanner("PARRIED BY FRONTAL GUARD! FLANK BEHIND ECHO OR THROW CORE!");
+                    ShowEventBanner("PARRIED BY FRONTAL GUARD! FLANK BEHIND RIVAL OR THROW CORE!");
                     return;
                 }
 
                 // FLANK BACKSTAB SHATTER!
-                ShatterRivalEcho(echo, "PARADOX BACKSTAB SHATTER! +200 PTS", 200);
+                ShatterRivalEcho(echo, _isTutorialMode ? "STEP 4 COMPLETE! RIVAL THIEF KNOCKED OUT (+300 PTS)!" : "RIVAL THIEF KNOCKED OUT! +200 PTS", _isTutorialMode ? 300 : 200);
                 _dashCooldown = 0f; // Instant Chain-Dash Reset on takedown!
+
+                if (_isTutorialMode && _currentLoopIndex == 3 && _tutorialStepAdvanceDelay <= 0f)
+                {
+                    _tutorialProgress = 100;
+                    _tutorialStepAdvanceDelay = 1.1f;
+                }
             }
         }
 
@@ -1032,17 +1107,37 @@ namespace ChronoHeist
             if (rig == "tech_hacker") throwSpeed *= 0.85f;
             if (_isAnomalyMode) throwSpeed *= 1.35f;
 
+            Vector3 launchDir = _moveDir;
+            if (_isTutorialMode && _currentLoopIndex == 2)
+            {
+                Vector3 toCenter = (new Vector3(0f, 0f, -6.5f) - _playerPos);
+                toCenter.y = 0f;
+                if (toCenter.sqrMagnitude > 0.1f) launchDir = toCenter.normalized;
+            }
+
             c.CarriedByActorId = -1;
             c.IsInFlight = true;
             c.ThrownByLoopIndex = _currentLoopIndex;
-            c.CurrentPosition = _playerPos + _moveDir * 0.9f + Vector3.up * 1.35f;
-            c.Velocity = _moveDir * throwSpeed;
+            c.CurrentPosition = _playerPos + launchDir * 0.9f + Vector3.up * 1.35f;
+            c.Velocity = launchDir * throwSpeed;
 
-            RecordPlayerFrame(_playerCarriedCoreId, _moveDir);
+            RecordPlayerFrame(_playerCarriedCoreId, launchDir);
             _playerCarriedCoreId = -1;
 
             WebGLBridge.TriggerSynth("core_throw", 0.9f);
-            ShowEventBanner("CORE LAUNCHED THROUGH APERTURE!");
+
+            if (_isTutorialMode && _currentLoopIndex == 2 && _tutorialStepAdvanceDelay <= 0f)
+            {
+                _alleyOopsLanded++;
+                _playerScore += 250;
+                _tutorialProgress = 100;
+                ShowEventBanner("STEP 3 COMPLETE! CORE THROWN ACROSS THE ROOM (+250 PTS)!");
+                _tutorialStepAdvanceDelay = 1.1f;
+            }
+            else
+            {
+                ShowEventBanner("CORE THROWN ACROSS THE ROOM!");
+            }
         }
 
         private void ActivateClassGadget()
@@ -1059,7 +1154,7 @@ namespace ChronoHeist
                     _activeDecoyTimer = 3.5f;
                     if (_activeDecoyObj != null) Destroy(_activeDecoyObj);
                     _activeDecoyObj = CyberVaultSceneBuilder.SpawnModel("Char_Mannequin", "HoloDecoy", _arenaRoot, _playerPos, Quaternion.Euler(0f, _playerYaw, 0f), Vector3.one * 0.9f, CyberVaultSceneBuilder.ColAcidVolt, false);
-                    ShowEventBanner("HOLO-DECOY DEPLOYED ON CIRCUIT (3.5s)!");
+                    ShowEventBanner("HOLO-DECOY DEPLOYED ON SWITCH (3.5s)!");
                     break;
 
                 case "grav_runner":
@@ -1094,7 +1189,7 @@ namespace ChronoHeist
                     // Phase Blink: 1.5s ghost phase through Laser Gates!
                     DropPlayerCore();
                     _phaseBlinkTimer = 1.5f;
-                    ShowEventBanner("PHASE BLINK ACTIVE — DASH THROUGH LASER GATES!");
+                    ShowEventBanner("PHASE BLINK ACTIVE — DASH THROUGH LASER DOORS!");
                     break;
 
                 case "enforcer":
@@ -1149,22 +1244,6 @@ namespace ChronoHeist
                 EchoFrameSnapshot snap = echo.Frames[clampedIdx];
                 Vector3 pos = new Vector3(snap.x, 0f, snap.z);
 
-                // Tutorial Loop 2 Guaranteed Allied Throw from Pad Alpha through West Throw Window at t = 4.2s!
-                if (_isTutorialMode && _currentLoopIndex == 1 && !echo.IsRival && _loopTimer >= 4.2f && echo.LastProcessedFrameIndex < 999)
-                {
-                    echo.LastProcessedFrameIndex = 999;
-                    DataCoreNode tutCore = _cores[0];
-                    if (!tutCore.IsExtracted && tutCore.CarriedByActorId < 0)
-                    {
-                        tutCore.CurrentPosition = new Vector3(-6.2f, 1.35f, -1.0f);
-                        tutCore.Velocity = new Vector3(9.5f, 0f, 0.2f);
-                        tutCore.IsInFlight = true;
-                        tutCore.ThrownByLoopIndex = 0;
-                        WebGLBridge.TriggerSynth("core_throw", 0.9f);
-                        ShowEventBanner("PAST YOU THREW CORE W-1 THROUGH WINDOW — CATCH IT!");
-                    }
-                }
-
                 // Replay recorded Ballistic Core Throw from Allied Echo!
                 if (!echo.IsRival && snap.thrownCoreId >= 0 && snap.thrownCoreId < _cores.Count && echo.LastProcessedFrameIndex != clampedIdx)
                 {
@@ -1197,7 +1276,7 @@ namespace ChronoHeist
                 {
                     if (Mathf.Abs(pos.z - 6.2f) < 0.75f && Mathf.Abs(pos.x) < 1.6f)
                     {
-                        ShatterRivalEcho(echo, "CAUSAL BUTTERFLY WIPEOUT! LASER GATE VAPORIZED RIVAL (+350 PTS)", 350);
+                        ShatterRivalEcho(echo, "LASER DOOR WIPEOUT! RIVAL VAPORIZED (+350 PTS)", 350);
                         continue;
                     }
                 }
@@ -1208,7 +1287,7 @@ namespace ChronoHeist
                 OperativeRigAnimator echoRigAnim = echo.RootObj.GetComponent<OperativeRigAnimator>();
                 if (echoRigAnim != null)
                 {
-                    echoRigAnim.SetAnimState(echo.CarriedCoreId >= 0 ? 2 : Mathf.Max(1, snap.anim));
+                    echoRigAnim.SetAnimState(echo.CarriedCoreId >= 0 ? 2 : Mathf.Max(0, snap.anim));
                 }
 
                 // Update Rival Frontal Guard Arc visual
@@ -1239,7 +1318,7 @@ namespace ChronoHeist
                     {
                         // Rule A: Pre-emptive Temporal Snatch! Player took the core before Rival arrived -> Rival suffers Desync Stun!
                         echo.StunTimer = 1.5f;
-                        ShowEventBanner("TEMPORAL SNATCH! RIVAL ECHO DESYNCED AT EMPTY PEDESTAL!");
+                        ShowEventBanner("STOLEN FIRST! RIVAL THIEF STUNNED AT EMPTY PEDESTAL!");
                     }
                 }
 
@@ -1266,6 +1345,12 @@ namespace ChronoHeist
                     _activeDecoyPos = null;
                     if (_activeDecoyObj != null) Destroy(_activeDecoyObj);
                 }
+            }
+
+            // In Tutorial Steps 2, 3, 4, Past You (Loop 1) holds Pad Alpha open continuously!
+            if (_isTutorialMode && _currentLoopIndex >= 1 && _pads.Count > 0)
+            {
+                _pads[0].CapacitorHoldTimer = 3.0f;
             }
 
             bool anyPadActive = false;
@@ -1342,10 +1427,59 @@ namespace ChronoHeist
             }
         }
 
+        private Vector3 GetCurrentObjectiveWorldTarget()
+        {
+            if (_isTutorialMode)
+            {
+                if (_currentLoopIndex == 0)
+                {
+                    // Step 1: West Door Switch (Pad_Alpha)
+                    return new Vector3(-8.8f, 0.2f, -1.2f);
+                }
+                if (_currentLoopIndex == 1)
+                {
+                    // Step 2: Gold Vault Core if empty-handed, South Escape Zone if carrying a Core
+                    return _playerCarriedCoreId < 0
+                        ? new Vector3(0f, 0.4f, 8.8f)
+                        : new Vector3(0f, 0.2f, -8.2f);
+                }
+                if (_currentLoopIndex == 2)
+                {
+                    // Step 3: Nearest Core if empty-handed, Center Escape direction if carrying a Core
+                    if (_playerCarriedCoreId >= 0) return new Vector3(0f, 0.4f, -6.5f);
+                    for (int i = 0; i < _cores.Count; i++)
+                    {
+                        if (!_cores[i].IsExtracted) return new Vector3(_cores[i].CurrentPosition.x, 0.3f, _cores[i].CurrentPosition.z);
+                    }
+                    return new Vector3(-10.2f, 0.3f, -3.2f);
+                }
+                // Step 4: Active Red Rival Thief
+                for (int i = 0; i < _activeEchoes.Count; i++)
+                {
+                    if (_activeEchoes[i].IsRival && !_activeEchoes[i].IsShattered && _activeEchoes[i].RootObj != null)
+                    {
+                        return _activeEchoes[i].RootObj.transform.position + Vector3.up * 0.3f;
+                    }
+                }
+                return new Vector3(0f, 0.3f, -1.0f);
+            }
+
+            // Standard Match Guide Target:
+            if (_playerCarriedCoreId >= 0)
+            {
+                return new Vector3(0f, 0.2f, -8.2f);
+            }
+            if (_gates.Count > 0 && _gates[0].IsOpen && _cores.Count > 5 && !_cores[5].IsExtracted)
+            {
+                return new Vector3(0f, 0.4f, 8.8f);
+            }
+            return new Vector3(-8.8f, 0.2f, -1.2f);
+        }
+
         private void UpdateBallisticCoresAndExtraction(float dt)
         {
             string currentRig = _playerCrewClasses[_currentLoopIndex];
-            float catchRadius = (currentRig == "grav_runner") ? 2.85f : 1.55f;
+            float catchRadius = (currentRig == "grav_runner") ? 2.85f : 1.75f;
 
             for (int i = 0; i < _cores.Count; i++)
             {
@@ -1411,11 +1545,19 @@ namespace ChronoHeist
                             _dashCooldown = 0f; // Instant Dash Reset on Alley-Oop catch!
                             if (_cameraRig != null) _cameraRig.TriggerImpactPunch(1.1f, 0.09f);
                             WebGLBridge.TriggerSynth("alley_oop_catch", 1.0f);
-                            ShowEventBanner("2X TEMPORAL ALLEY-OOP CATCH! (+250 BONUS PTS)");
+                            ShowEventBanner("2X TEMPORAL PASS CATCH! (+250 BONUS PTS)");
                         }
                         else
                         {
                             WebGLBridge.TriggerSynth("core_pickup", 0.8f);
+                            if (_isTutorialMode && _currentLoopIndex == 1)
+                            {
+                                ShowEventBanner("GOT THE GOLD VAULT CORE! NOW BRING IT SOUTH TO THE ESCAPE ZONE!");
+                            }
+                            else if (_isTutorialMode && _currentLoopIndex == 2)
+                            {
+                                ShowEventBanner("GOT THE CORE! NOW PRESS [E] OR LEFT-CLICK TO THROW IT!");
+                            }
                         }
                     }
                 }
@@ -1442,7 +1584,7 @@ namespace ChronoHeist
             }
 
             // Check Player Extraction at South Extraction Ring (0, -8.2)
-            if (_playerCarriedCoreId >= 0 && Vector3.Distance(_playerPos, new Vector3(0f, 0f, -8.2f)) < 2.6f)
+            if (_playerCarriedCoreId >= 0 && Vector3.Distance(_playerPos, new Vector3(0f, 0f, -8.2f)) < 2.75f)
             {
                 DataCoreNode extracted = _cores[_playerCarriedCoreId];
                 extracted.IsExtracted = true;
@@ -1453,21 +1595,28 @@ namespace ChronoHeist
                 _coresExtractedCount++;
                 _playerCarriedCoreId = -1;
                 WebGLBridge.TriggerSynth("core_extract", 1.0f);
-                ShowEventBanner($"EXTRACTED {extracted.Label} (+{extracted.BasePoints} PTS)!");
+
+                if (_isTutorialMode && _currentLoopIndex == 1 && _tutorialStepAdvanceDelay <= 0f)
+                {
+                    _tutorialProgress = 100;
+                    ShowEventBanner("STEP 2 COMPLETE! YOU & YOUR PAST SELF STOLE THE GOLD VAULT CORE (+350 PTS)!");
+                    _tutorialStepAdvanceDelay = 1.0f;
+                }
+                else
+                {
+                    ShowEventBanner($"BANKED {extracted.Label} (+{extracted.BasePoints} PTS)!");
+                }
             }
 
-            // Update Spatial Floor Tether Line (Connects Operative directly to Extraction Ring or Throw Window)
+            // Update Glowing Floor Guide Line (Connects Operative directly to Active Objective Target!)
             if (_tetherLine != null)
             {
-                if (_playerCarriedCoreId >= 0)
+                bool showGuide = _isTutorialMode || _playerCarriedCoreId >= 0 || (_currentLoopIndex == 0 && _coresExtractedCount == 0);
+                if (showGuide)
                 {
                     _tetherLine.enabled = true;
-                    _tetherLine.SetPosition(0, _playerPos + Vector3.up * 0.15f);
-                    // In Tutorial Loop 1, point tether to West Throw Window (-5.5, -1.0) to teach throwing through glass!
-                    Vector3 tetherTarget = (_isTutorialMode && _currentLoopIndex == 0)
-                        ? new Vector3(-5.5f, 0.8f, -1.0f)
-                        : new Vector3(0f, 0.15f, -8.2f);
-                    _tetherLine.SetPosition(1, tetherTarget);
+                    _tetherLine.SetPosition(0, _playerPos + Vector3.up * 0.16f);
+                    _tetherLine.SetPosition(1, GetCurrentObjectiveWorldTarget());
                 }
                 else
                 {
@@ -1513,7 +1662,7 @@ namespace ChronoHeist
                     _playerPos = v.ExitPosition;
                     v.CooldownTimer = 4.0f;
                     WebGLBridge.TriggerSynth("phase_vent", 0.85f);
-                    ShowEventBanner("PHASE VENT LAUNCH TO EXTRACTION DECK!");
+                    ShowEventBanner("SHORTCUT VENT LAUNCH TO ESCAPE ZONE!");
                 }
             }
         }
@@ -1524,49 +1673,83 @@ namespace ChronoHeist
             {
                 if (_currentLoopIndex == 0)
                 {
-                    if (_playerCarriedCoreId < 0)
-                        _activeMicroCue = "LOOP 1/4: STEP ON PAD ALPHA (WEST) & GRAB CORE W-1";
+                    _tutorialTitle = "STEP 1 OF 4: HOLD THE GREEN DOOR SWITCH";
+                    _tutorialDetail = "Move with [WASD] or [Arrow Keys] along the glowing floor line onto the GREEN DOOR SWITCH on the left. Standing on it powers open the Red Laser Vault Door!";
+                    _activeMicroCue = "STEP 1/4: WALK ONTO THE GREEN DOOR SWITCH ON THE LEFT";
+
+                    float distToPad = Vector3.Distance(_playerPos, new Vector3(-8.8f, 0f, -1.2f));
+                    if (distToPad < 2.25f)
+                    {
+                        _tutorialPadHoldAccum += Time.deltaTime;
+                        _tutorialProgress = Mathf.Clamp(Mathf.RoundToInt((_tutorialPadHoldAccum / 1.2f) * 100f), 15, 100);
+                        if (_tutorialPadHoldAccum >= 1.2f && _tutorialStepAdvanceDelay <= 0f)
+                        {
+                            _playerScore += 150;
+                            _currentLoopRecording = BuildCleanPadAlphaRecording();
+                            ShowEventBanner("STEP 1 COMPLETE! TIME REWINDS — NOW PAST YOU WILL HOLD THIS SWITCH FOR YOU!");
+                            _tutorialStepAdvanceDelay = 0.9f;
+                        }
+                    }
                     else
-                        _activeMicroCue = "AIM AT THROW WINDOW & PRESS [E] TO PASS CORE TO FUTURE YOU!";
+                    {
+                        _tutorialProgress = Mathf.Clamp(Mathf.RoundToInt((1f - Mathf.Clamp01(distToPad / 10f)) * 45f), 5, 45);
+                    }
                 }
                 else if (_currentLoopIndex == 1)
                 {
-                    _activeMicroCue = "LOOP 2/4: CATCH YOUR LOOP 1 PASS IN CENTER HUB & RUN TO SOUTH RING!";
+                    if (_playerCarriedCoreId < 0)
+                    {
+                        _tutorialTitle = "STEP 2 OF 4: STEAL THE GOLD VAULT CORE WITH PAST YOU";
+                        _tutorialDetail = "Look left — PAST YOU (Loop 1) is standing on the Door Switch keeping the Red Laser Door open! Run North through the open doorway and touch the GOLD VAULT CORE.";
+                        _activeMicroCue = "STEP 2/4: RUN NORTH THROUGH THE OPEN DOOR & GRAB THE GOLD VAULT CORE";
+                        _tutorialProgress = 30;
+                    }
+                    else
+                    {
+                        _tutorialTitle = "STEP 2 OF 4: BRING THE CORE TO THE SOUTH ESCAPE ZONE";
+                        _tutorialDetail = "You grabbed the Gold Vault Core (+350 PTS)! Follow the glowing floor line South to the orange ESCAPE ZONE to bank it!";
+                        _activeMicroCue = "STEP 2/4: CARRY THE CORE SOUTH TO THE ORANGE ESCAPE ZONE";
+                        _tutorialProgress = 75;
+                    }
                 }
                 else if (_currentLoopIndex == 2)
                 {
-                    _activeMicroCue = "LOOP 3/4: FLANK BEHIND CRIMSON ECHO & PRESS [SPACE] TO BACKSTAB!";
-                    // Trigger 0.25x Tactical Slow-Mo when behind Rival Echo in Tutorial Loop 3!
-                    if (!_tutorialSlowMoTriggered && _activeEchoes.Count > 0)
+                    if (_playerCarriedCoreId < 0)
                     {
-                        for (int i = 0; i < _activeEchoes.Count; i++)
-                        {
-                            if (_activeEchoes[i].IsRival && !_activeEchoes[i].IsShattered && _activeEchoes[i].RootObj != null)
-                            {
-                                float d = Vector3.Distance(_playerPos, _activeEchoes[i].RootObj.transform.position);
-                                if (d < 3.4f)
-                                {
-                                    _tutorialSlowMoTriggered = true;
-                                    Time.timeScale = 0.25f;
-                                }
-                            }
-                        }
+                        _tutorialTitle = "STEP 3 OF 4: PICK UP A DATA CORE TO THROW";
+                        _tutorialDetail = "Why walk all the way around walls when you can throw Cores? Follow the glowing line to pick up a Data Core.";
+                        _activeMicroCue = "STEP 3/4: WALK OVER TO THE DATA CORE TO PICK IT UP";
+                        _tutorialProgress = 25;
+                    }
+                    else
+                    {
+                        _tutorialTitle = "STEP 3 OF 4: PRESS [E] OR LEFT-CLICK TO THROW!";
+                        _tutorialDetail = "You are holding a Data Core! Press [E] or Left-Click right now to launch it across the room!";
+                        _activeMicroCue = "STEP 3/4: PRESS [E] OR LEFT-CLICK TO THROW THE CORE!";
+                        _tutorialProgress = 75;
                     }
                 }
                 else
                 {
-                    _activeMicroCue = "LOOP 4/4: [SPACE] SLASH RIVAL ON EAST PAD BETA TO SLAM LASER GATE ON RUNNER!";
+                    _tutorialTitle = "STEP 4 OF 4: KNOCK OUT THE RED RIVAL THIEF [SPACE]";
+                    _tutorialDetail = "A RED RIVAL THIEF is trying to steal a Data Core in the Center Hub! Run up to them and press [SPACE] or Right-Click to knock them out!";
+                    _activeMicroCue = "STEP 4/4: RUN UP TO THE RED RIVAL THIEF & PRESS [SPACE]!";
+                    if (_paradoxesTriggered == 0) _tutorialProgress = 45;
                 }
                 return;
             }
 
+            _tutorialTitle = "";
+            _tutorialDetail = "";
+            _tutorialProgress = 0;
+
             if (_currentLoopIndex == 0 && !_hasMovedInLoop1)
             {
-                _activeMicroCue = "[WASD] MOVE  •  [SPACE] BACKSTAB DASH  •  [E] THROW CORE  •  [Q] GADGET";
+                _activeMicroCue = "[WASD] MOVE TO GREEN SWITCH  •  [E] THROW CORE  •  [SPACE] KNOCK OUT RIVAL";
             }
             else if (_playerCarriedCoreId >= 0)
             {
-                _activeMicroCue = "CARRYING CORE — [E] THROW ALLEY-OOP PASS OR EXTRACT AT SOUTH RING";
+                _activeMicroCue = "CARRYING CORE — BRING TO SOUTH ESCAPE ZONE OR PRESS [E] TO THROW";
             }
             else
             {
@@ -1607,15 +1790,116 @@ namespace ChronoHeist
             }
         }
 
+        private void AppendProjectedMarker(System.Text.StringBuilder sb, ref bool first, string id, string label, string tone, Vector3 worldPos)
+        {
+            if (Camera.main == null) return;
+            Vector3 vp = Camera.main.WorldToViewportPoint(worldPos);
+            if (vp.z <= 0.1f) return;
+            float sx = Mathf.Clamp(vp.x * 100f, 6f, 94f);
+            float sy = Mathf.Clamp((1f - vp.y) * 100f, 8f, 90f);
+            if (!first) sb.Append(",");
+            first = false;
+            sb.AppendFormat(
+                "{{\"id\":\"{0}\",\"label\":\"{1}\",\"tone\":\"{2}\",\"x\":{3:F1},\"y\":{4:F1}}}",
+                id,
+                EscapeJson(label),
+                tone,
+                sx,
+                sy
+            );
+        }
+
+        private string BuildWorldMarkersJson()
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder("[");
+            bool first = true;
+
+            if (!_isMatchRunning)
+            {
+                // In Lobby (Tactical Vault Overview), show 3D floating pins explaining the 4 key arena zones!
+                if (_cameraRig == null || !_cameraRig.IsArmoryTurntableMode)
+                {
+                    AppendProjectedMarker(sb, ref first, "vault", "🔒 GOLD VAULT CORE (+350 PTS)", "gold", new Vector3(0f, 2.3f, 8.8f));
+                    AppendProjectedMarker(sb, ref first, "gate", "🔴 RED LASER VAULT DOOR", "red", new Vector3(0f, 2.5f, 6.2f));
+                    AppendProjectedMarker(sb, ref first, "pad_w", "🟢 DOOR SWITCH (STAND HERE IN LOOP 1)", "green", new Vector3(-8.8f, 1.6f, -1.2f));
+                    AppendProjectedMarker(sb, ref first, "extract", "🔶 ESCAPE ZONE (BRING CORES HERE)", "orange", new Vector3(0f, 1.2f, -8.2f));
+                }
+                sb.Append("]");
+                return sb.ToString();
+            }
+
+            // 1. Active Player Pin
+            if (_playerObj != null)
+            {
+                string youLabel = _playerCarriedCoreId >= 0
+                    ? "🟠 YOU (CARRYING CORE!)"
+                    : string.Format("🟠 YOU (LOOP {0})", _currentLoopIndex + 1);
+                AppendProjectedMarker(sb, ref first, "you", youLabel, "orange", _playerPos + Vector3.up * 2.25f);
+            }
+
+            // 2. Past Self & Rival Echo Pins
+            for (int i = 0; i < _activeEchoes.Count; i++)
+            {
+                EchoActorInstance e = _activeEchoes[i];
+                if (e.IsShattered || e.RootObj == null) continue;
+                Vector3 ePos = e.RootObj.transform.position + Vector3.up * 2.2f;
+                if (e.IsRival)
+                {
+                    string rLabel = _isTutorialMode ? "🔴 RIVAL THIEF — PRESS [SPACE]!" : "🔴 RIVAL THIEF";
+                    AppendProjectedMarker(sb, ref first, "rival_" + e.ActorId, rLabel, "red", ePos);
+                }
+                else
+                {
+                    string aLabel = (_isTutorialMode && e.LoopIndex == 0)
+                        ? "🟢 PAST YOU (HOLDING SWITCH!)"
+                        : string.Format("🟢 PAST YOU (LOOP {0})", e.LoopIndex + 1);
+                    AppendProjectedMarker(sb, ref first, "ally_" + e.ActorId, aLabel, "green", ePos);
+                }
+            }
+
+            // 3. Active Objective Target Pin
+            Vector3 targetPos = GetCurrentObjectiveWorldTarget() + Vector3.up * 1.55f;
+            if (_isTutorialMode)
+            {
+                string tLabel = "🎯 CURRENT TARGET";
+                if (_currentLoopIndex == 0) tLabel = "🎯 STEP 1: STAND ON GREEN DOOR SWITCH";
+                else if (_currentLoopIndex == 1) tLabel = _playerCarriedCoreId < 0 ? "🎯 STEP 2: TOUCH GOLD VAULT CORE" : "🎯 STEP 2: BRING TO ESCAPE ZONE";
+                else if (_currentLoopIndex == 2) tLabel = _playerCarriedCoreId < 0 ? "🎯 STEP 3: PICK UP DATA CORE" : "🎯 STEP 3: PRESS [E] TO THROW!";
+                else tLabel = "🎯 STEP 4: RUN UP & PRESS [SPACE]!";
+                AppendProjectedMarker(sb, ref first, "target", tLabel, "target", targetPos);
+            }
+            else
+            {
+                if (_playerCarriedCoreId >= 0)
+                {
+                    AppendProjectedMarker(sb, ref first, "target", "🎯 ESCAPE ZONE (BRING CORE HERE)", "target", new Vector3(0f, 1.5f, -8.2f));
+                }
+                else if (_gates.Count > 0 && _gates[0].IsOpen && _cores.Count > 5 && !_cores[5].IsExtracted)
+                {
+                    AppendProjectedMarker(sb, ref first, "target", "🔓 VAULT OPEN! GRAB +350 PT CORE", "gold", new Vector3(0f, 2.3f, 8.8f));
+                }
+                else if (_currentLoopIndex == 0)
+                {
+                    AppendProjectedMarker(sb, ref first, "target", "🟢 DOOR SWITCH (OPENS VAULT)", "green", new Vector3(-8.8f, 1.6f, -1.2f));
+                }
+            }
+
+            sb.Append("]");
+            return sb.ToString();
+        }
+
         private void BroadcastHudState()
         {
             string camLabel = _cameraRig != null ? _cameraRig.GetModeLabel() : "TACTICAL 46°";
             string rigClass = _playerCrewClasses[Mathf.Clamp(_currentLoopIndex, 0, 3)];
             string banner = _eventBannerTimer > 0f ? EscapeJson(_lastEventBanner) : "";
             string cue = EscapeJson(_activeMicroCue);
+            string tutTitle = EscapeJson(_tutorialTitle);
+            string tutDetail = EscapeJson(_tutorialDetail);
+            string markersJson = BuildWorldMarkersJson();
 
             string json = string.Format(
-                "{{\"isRunning\":{0},\"isRewinding\":{1},\"isTutorial\":{2},\"loop\":{3},\"timeLeft\":{4:F1},\"playerScore\":{5},\"rivalScore\":{6},\"carryingCore\":{7},\"dashReady\":{8},\"gadgetReady\":{9},\"cameraMode\":\"{10}\",\"rigClass\":\"{11}\",\"microCue\":\"{12}\",\"eventBanner\":\"{13}\",\"paradoxes\":{14},\"alleyOops\":{15}}}",
+                "{{\"isRunning\":{0},\"isRewinding\":{1},\"isTutorial\":{2},\"loop\":{3},\"timeLeft\":{4:F1},\"playerScore\":{5},\"rivalScore\":{6},\"carryingCore\":{7},\"dashReady\":{8},\"gadgetReady\":{9},\"cameraMode\":\"{10}\",\"rigClass\":\"{11}\",\"microCue\":\"{12}\",\"eventBanner\":\"{13}\",\"paradoxes\":{14},\"alleyOops\":{15},\"tutorialTitle\":\"{16}\",\"tutorialDetail\":\"{17}\",\"tutorialProgress\":{18},\"markers\":{19}}}",
                 _isMatchRunning ? "true" : "false",
                 _rewindTransitionTimer > 0f ? "true" : "false",
                 _isTutorialMode ? "true" : "false",
@@ -1631,7 +1915,11 @@ namespace ChronoHeist
                 cue,
                 banner,
                 _paradoxesTriggered,
-                _alleyOopsLanded
+                _alleyOopsLanded,
+                tutTitle,
+                tutDetail,
+                _tutorialProgress,
+                markersJson
             );
             WebGLBridge.SendHudTelemetry(json);
         }
@@ -1673,6 +1961,20 @@ namespace ChronoHeist
             _root = root;
             _phaseOffset = phaseOffset;
             _meshChild = root.childCount > 0 ? root.GetChild(0) : root;
+
+            RuntimeAnimatorController ctrl = Resources.Load<RuntimeAnimatorController>("Quaternius/OperativeAnimator");
+            Animator anim = root.GetComponentInChildren<Animator>(true);
+            if (anim != null && ctrl != null)
+            {
+                anim.enabled = true;
+                anim.runtimeAnimatorController = ctrl;
+                anim.applyRootMotion = false;
+                anim.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                anim.Play("Idle", 0, (phaseOffset % 1.0f));
+                anim.Update(0.05f);
+                _initialized = false; // Driven by real Quaternius Humanoid AnimatorController!
+                return;
+            }
 
             // Disable default unconfigured Animator so it never resets bones to bind T-pose
             Animator[] anims = root.GetComponentsInChildren<Animator>(true);
@@ -1732,7 +2034,17 @@ namespace ChronoHeist
 
         public void SetAnimState(int state)
         {
+            if (_animState == state) return;
             _animState = state;
+            if (_root != null)
+            {
+                Animator anim = _root.GetComponentInChildren<Animator>(true);
+                if (anim != null && anim.runtimeAnimatorController != null)
+                {
+                    string stateName = state == 3 ? "Dash" : (state == 2 ? "Carry" : (state == 1 ? "Run" : "Idle"));
+                    anim.CrossFadeInFixedTime(stateName, 0.12f);
+                }
+            }
         }
 
         private void LateUpdate()
@@ -1757,21 +2069,20 @@ namespace ChronoHeist
 
             if (_animState == 0)
             {
-                // TACTICAL READY IDLE STANCE (Arms lowered & bent in combat guard, subtle breathing sway)
-                float breath = Mathf.Sin(t * 2.6f + _phaseOffset) * 0.04f;
-                float lookSway = Mathf.Sin(t * 1.3f + _phaseOffset) * 0.08f;
+                // TACTICAL READY IDLE STANCE (Arms relaxed at sides, subtle breathing sway, zero elbow twist)
+                float breath = Mathf.Sin(t * 2.6f + _phaseOffset) * 0.03f;
 
-                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.26f, -0.92f, 0.16f + breath)));
-                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3( 0.22f,  0.24f + breath, 0.94f)));
+                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.34f, -0.92f, 0.04f + breath)));
+                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3(-0.18f, -0.76f + breath, 0.62f)));
 
-                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.30f, -0.88f, 0.22f + breath)));
-                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3(-0.20f + lookSway, 0.32f + breath, 0.92f)));
+                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.34f, -0.92f, 0.08f + breath)));
+                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3( 0.16f, -0.68f + breath, 0.70f)));
 
-                AimSegment(_thighL, _calfL, _root.TransformDirection(new Vector3(-0.08f, -0.98f,  0.10f)));
-                AimSegment(_calfL,  _footL, _root.TransformDirection(new Vector3(-0.04f, -0.98f, -0.12f)));
+                AimSegment(_thighL, _calfL, _root.TransformDirection(new Vector3(-0.08f, -0.98f,  0.08f)));
+                AimSegment(_calfL,  _footL, _root.TransformDirection(new Vector3(-0.04f, -0.98f, -0.10f)));
 
-                AimSegment(_thighR, _calfR, _root.TransformDirection(new Vector3( 0.08f, -0.98f, -0.08f)));
-                AimSegment(_calfR,  _footR, _root.TransformDirection(new Vector3( 0.04f, -0.98f, -0.14f)));
+                AimSegment(_thighR, _calfR, _root.TransformDirection(new Vector3( 0.08f, -0.98f, -0.06f)));
+                AimSegment(_calfR,  _footR, _root.TransformDirection(new Vector3( 0.04f, -0.98f, -0.10f)));
             }
             else if (_animState == 1)
             {
@@ -1786,15 +2097,15 @@ namespace ChronoHeist
                 AimSegment(_thighR, _calfR, _root.TransformDirection(new Vector3( 0.07f, -0.86f, -s * 0.56f)));
                 AimSegment(_calfR,  _footR, _root.TransformDirection(new Vector3( 0.04f, -0.88f, Mathf.Min(0f, -c * 0.45f) - 0.32f)));
 
-                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.28f, -0.84f, -s * 0.48f)));
-                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3( 0.16f,  0.38f,  0.90f)));
+                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.34f, -0.86f, -s * 0.42f)));
+                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3(-0.18f, -0.35f,  0.88f)));
 
-                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.28f, -0.84f,  s * 0.48f)));
-                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3(-0.16f,  0.38f,  0.90f)));
+                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.34f, -0.86f,  s * 0.42f)));
+                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3( 0.18f, -0.35f,  0.88f)));
             }
             else if (_animState == 2)
             {
-                // CARRYING DATA CORE (Arms cradling Core in front of torso while legs sprint)
+                // CARRYING DATA CORE
                 float cycle = t * 14.0f + _phaseOffset;
                 float s = Mathf.Sin(cycle);
 
@@ -1804,11 +2115,11 @@ namespace ChronoHeist
                 AimSegment(_thighR, _calfR, _root.TransformDirection(new Vector3( 0.07f, -0.88f, -s * 0.50f)));
                 AimSegment(_calfR,  _footR, _root.TransformDirection(new Vector3( 0.04f, -0.90f, -0.30f)));
 
-                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.22f, -0.55f, 0.78f)));
-                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3( 0.35f,  0.45f, 0.82f)));
+                AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.28f, -0.68f, 0.65f)));
+                AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3(-0.10f, -0.15f, 0.95f)));
 
-                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.22f, -0.55f, 0.78f)));
-                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3(-0.35f,  0.45f, 0.82f)));
+                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.28f, -0.68f, 0.65f)));
+                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3( 0.10f, -0.15f, 0.95f)));
             }
             else
             {
@@ -1822,8 +2133,8 @@ namespace ChronoHeist
                 AimSegment(_upperArmL, _lowerArmL, _root.TransformDirection(new Vector3(-0.45f, -0.65f, -0.55f)));
                 AimSegment(_lowerArmL, _handL,     _root.TransformDirection(new Vector3(-0.25f, -0.30f, -0.88f)));
 
-                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.55f, -0.20f,  0.80f)));
-                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3(-0.65f,  0.15f,  0.74f)));
+                AimSegment(_upperArmR, _lowerArmR, _root.TransformDirection(new Vector3( 0.45f, -0.35f,  0.80f)));
+                AimSegment(_lowerArmR, _handR,     _root.TransformDirection(new Vector3( 0.15f, -0.10f,  0.96f)));
             }
         }
 

@@ -13,6 +13,7 @@ namespace ChronoHeist.Editor
         public static void Build()
         {
             Console.WriteLine("=== [ChronoHeist] Starting Automated Unity 6 WebGL Build ===");
+            SceneValidator.EnsureOperativeAnimatorController();
 
             // 1. Ensure Scene Directory & Create ChronoCrucible.unity
             string sceneDir = "Assets/Scenes";

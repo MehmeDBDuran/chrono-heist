@@ -21,6 +21,14 @@ interface UnityInstance {
   Quit?: () => Promise<void>;
 }
 
+interface WorldMarker {
+  id: string;
+  label: string;
+  tone: "orange" | "green" | "red" | "gold" | "target";
+  x: number;
+  y: number;
+}
+
 interface HudTelemetry {
   isRunning: boolean;
   isRewinding: boolean;
@@ -38,6 +46,10 @@ interface HudTelemetry {
   eventBanner: string;
   paradoxes: number;
   alleyOops: number;
+  tutorialTitle?: string;
+  tutorialDetail?: string;
+  tutorialProgress?: number;
+  markers?: WorldMarker[];
 }
 
 interface MatchSettlementSummary {
@@ -87,6 +99,10 @@ const DEFAULT_TELEMETRY: HudTelemetry = {
   eventBanner: "",
   paradoxes: 0,
   alleyOops: 0,
+  tutorialTitle: "",
+  tutorialDetail: "",
+  tutorialProgress: 0,
+  markers: [],
 };
 
 export default function ChronoHeistApp() {
@@ -129,9 +145,7 @@ export default function ChronoHeistApp() {
   >("crew_class");
 
   // Onboarding & Tutorial State
-  const [showInitiationPrompt, setShowInitiationPrompt] =
-    useState<boolean>(false);
-  const [tourStep, setTourStep] = useState<number>(0); // 0=hidden, 1=click armory, 2=assign L1, 3=deploy
+  const [showHowToPlay, setShowHowToPlay] = useState<boolean>(true);
   const [statusBanner, setStatusBanner] = useState<string>("");
   const [settlementModal, setSettlementModal] =
     useState<MatchSettlementSummary | null>(null);
@@ -162,10 +176,7 @@ export default function ChronoHeistApp() {
 
   // Push Crew & Armory Loadout to Unity 3D Turntable
   const syncLoadoutToUnity = useCallback(
-    (
-      prof: OperativeProfile | null,
-      slotIdx: number = focusedLoopSlot
-    ) => {
+    (prof: OperativeProfile | null, slotIdx: number = focusedLoopSlot) => {
       if (!unityRef.current || !prof) return;
       const crewStr = (
         prof.crew_loadout || [
@@ -253,11 +264,6 @@ export default function ChronoHeistApp() {
       flashBanner("CHALLENGE LINK LOADED — RIVAL TIMELINE LOCKED IN");
     }
 
-    const tutorialDone = localStorage.getItem("chrono_heist_tutorial_done");
-    if (!tutorialDone) {
-      setShowInitiationPrompt(true);
-    }
-
     loadSupabaseData(initialWallet, refParam);
   }, [loadSupabaseData, flashBanner]);
 
@@ -277,8 +283,7 @@ export default function ChronoHeistApp() {
 
         if (parsed.isTutorial) {
           localStorage.setItem("chrono_heist_tutorial_done", "1");
-          setShowInitiationPrompt(false);
-          setTourStep(1); // Start 3-step progressive lobby tour!
+          setShowHowToPlay(false);
 
           // Credit Tutorial completion reward (+300 Gold + Tech Hacker unlock) via Contract 1 RPC
           const { data } = await supabase.rpc("submit_heist_and_settle", {
@@ -303,7 +308,7 @@ export default function ChronoHeistApp() {
 
           setSettlementModal({
             won: true,
-            outcome: "SECTOR 00 INITIATION CLEARED — TECH HACKER RIG UNLOCKED!",
+            outcome: "Tutorial Complete! You Mastered Time-Loop Heists!",
             player_score: parsed.score,
             rival_score: 300,
             gold_earned: 300,
@@ -341,7 +346,7 @@ export default function ChronoHeistApp() {
           }
           setSettlementModal({
             won: Boolean(data.won),
-            outcome: String(data.outcome || "HEIST COMPLETE"),
+            outcome: String(data.outcome || "Heist Complete"),
             player_score: Number(data.player_score ?? parsed.score),
             rival_score: Number(data.rival_score ?? parsed.rivalScore),
             gold_earned: Number(data.gold_earned ?? 75),
@@ -358,8 +363,8 @@ export default function ChronoHeistApp() {
             won: parsed.score >= parsed.rivalScore,
             outcome:
               parsed.score >= parsed.rivalScore
-                ? "TIMELINE VICTORY"
-                : "RAID REPELLED",
+                ? "Heist Victory! You Outscored the Rival Crew!"
+                : "Heist Repelled — Score More Points Next Run",
             player_score: parsed.score,
             rival_score: parsed.rivalScore,
             gold_earned: 85,
@@ -440,9 +445,8 @@ export default function ChronoHeistApp() {
     }
   }, [isUnityReady, profile, hud.isRunning, focusedLoopSlot, syncLoadoutToUnity]);
 
-  // Launch Playable 4-Loop Initiation Tutorial (Sector 00)
+  // Launch Playable 4-Step Interactive Tutorial
   const launchInitiationTutorial = () => {
-    setShowInitiationPrompt(false);
     setSettlementModal(null);
     chronoSynth.startAdaptivePulse();
     activeMatchMetaRef.current = {
@@ -459,16 +463,15 @@ export default function ChronoHeistApp() {
         "tutorial|1|300|1|0"
       );
     }
+    canvasRef.current?.focus();
   };
 
-  // Launch Selected Heist Mode (Syndicate Contract, Wanted Bounty Duel, or Daily Anomaly)
+  // Launch Selected Heist Mode (Solo Mission, Rival Bounty Duel, or Daily Mutator)
   const launchHeist = (
     overrideMode?: "contract" | "free_pvp" | "staked_duel",
     isAnomalyRun: boolean = false
   ) => {
     setSettlementModal(null);
-    setShowInitiationPrompt(false);
-    if (tourStep === 3) setTourStep(0);
 
     let mode: "contract" | "free_pvp" | "staked_duel" =
       overrideMode ||
@@ -501,7 +504,10 @@ export default function ChronoHeistApp() {
         sectorId = b.sector_id;
         targetScore = b.raider_score;
         targetDuelId = b.id;
-        stake = mode === "staked_duel" ? Number(b.stake_udao || selectedStakeUdao) : 0;
+        stake =
+          mode === "staked_duel"
+            ? Number(b.stake_udao || selectedStakeUdao)
+            : 0;
       } else {
         stake = mode === "staked_duel" ? selectedStakeUdao : 0;
       }
@@ -512,7 +518,7 @@ export default function ChronoHeistApp() {
         (profile?.session_udao ?? 0) < stake
       ) {
         flashBanner(
-          `NEED ${stake} $UDAO IN SESSION VAULT — OPENING VAULT TOP-UP`
+          `Need ${stake} $UDAO in Session Vault — Opening Vault Top-Up`
         );
         vaultDialogRef.current?.showModal();
         return;
@@ -537,9 +543,10 @@ export default function ChronoHeistApp() {
         `${mode}|${sectorId}|${targetScore}|0|${isAnomalyRun ? 1 : 0}`
       );
     }
+    canvasRef.current?.focus();
   };
 
-  // Purchase or Equip 4-Loop Crew Class / 3D Skin / Hand_R Weapon / Echo Shader
+  // Purchase or Equip 4-Loop Crew Class / 3D Skin / Weapon / Echo Shader
   const handleSelectCatalogItem = async (item: MarketItem) => {
     chronoSynth.trigger("ui_click", 0.8);
     try {
@@ -550,7 +557,7 @@ export default function ChronoHeistApp() {
       });
 
       if (error) {
-        flashBanner(error.message.toUpperCase());
+        flashBanner(error.message);
         return;
       }
 
@@ -561,13 +568,12 @@ export default function ChronoHeistApp() {
         syncLoadoutToUnity(updatedProfile, focusedLoopSlot);
         flashBanner(
           item.category === "crew_class"
-            ? `ASSIGNED ${item.name} TO LOOP L${focusedLoopSlot + 1}`
-            : `EQUIPPED ${item.name} ON 3D RIG`
+            ? `Equipped ${item.name} on Loop ${focusedLoopSlot + 1}`
+            : `Equipped ${item.name} on your Operative`
         );
-        if (tourStep === 2) setTourStep(3);
       }
     } catch {
-      flashBanner("FAILED TO UPDATE LOADOUT");
+      flashBanner("Failed to update loadout");
     }
   };
 
@@ -581,7 +587,7 @@ export default function ChronoHeistApp() {
     });
     if (!error && data) {
       setProfile(data as OperativeProfile);
-      flashBanner(`CREDITED +${amount} $UDAO TO GAS-FREE SESSION VAULT`);
+      flashBanner(`Added +${amount} $UDAO to your Session Vault`);
     }
   };
 
@@ -594,7 +600,7 @@ export default function ChronoHeistApp() {
     });
     if (!error && data) {
       setProfile(data as OperativeProfile);
-      flashBanner(`WITHDREW ${bal.toFixed(2)} $UDAO TO POLYGON WALLET`);
+      flashBanner(`Withdrew ${bal.toFixed(2)} $UDAO to Polygon Wallet`);
     }
   };
 
@@ -609,13 +615,13 @@ export default function ChronoHeistApp() {
       }
     );
     if (error) {
-      flashBanner(error.message.toUpperCase());
+      flashBanner(error.message);
       return;
     }
     if (data?.profile) {
       setProfile(data.profile as OperativeProfile);
       flashBanner(
-        `CLAIMED +${data.reward_gold} CHRONO GOLD & +${data.reward_xp} XP!`
+        `Claimed +${data.reward_gold} Gold & +${data.reward_xp} XP!`
       );
     }
   };
@@ -628,7 +634,7 @@ export default function ChronoHeistApp() {
     navigator.clipboard?.writeText(url);
     chronoSynth.trigger("ui_click", 0.9);
     flashBanner(
-      "COPIED PLAYABLE CHALLENGE LINK (BINDS YOUR 2% LIFETIME REFERRAL!)"
+      "Copied Challenge Link (Earns you 2% lifetime referral rewards!)"
     );
   };
 
@@ -645,44 +651,69 @@ export default function ChronoHeistApp() {
         tabIndex={-1}
       />
 
+      {/* ===================================================================
+          3D WORLD-TO-SCREEN FLOATING CALLOUT PINS (Projected from Unity Camera)
+      =================================================================== */}
+      {isUnityReady && hud.markers && hud.markers.length > 0 && (
+        <div className="world-pins-layer">
+          {hud.markers.map((m) => (
+            <div
+              key={m.id}
+              className={`world-pin world-pin-${m.tone}`}
+              style={{
+                left: `${m.x}%`,
+                top: `${m.y}%`,
+              }}
+            >
+              {m.label}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Initial Unity 6 .wasm Stream Bar (Non-Blocking Top Strip) */}
       {!isUnityReady && (
         <div
           className="brutalist-block"
           style={{
             position: "absolute",
-            top: "74px",
+            top: "84px",
             left: "50%",
             transform: "translateX(-50%)",
-            padding: "8px 16px",
+            padding: "10px 18px",
             zIndex: 30,
-            fontFamily: "var(--font-mono)",
-            fontSize: "0.75rem",
+            fontSize: "0.85rem",
+            fontWeight: 700,
           }}
         >
-          LOADING 3D CONTAINMENT VAULT (QUATERNIUS .FBX) //{" "}
-          {Math.round(unityLoadProgress * 100)}%
+          Loading 3D Vault Arena… {Math.round(unityLoadProgress * 100)}%
         </div>
       )}
 
       {/* ===================================================================
-          TOP TACTICAL VISOR BAR (Always Visible)
+          TOP BAR (Always Visible)
       =================================================================== */}
       <header className="hud-top-bar">
-        {/* Left: Brand Identification + Initiation Tutorial Trigger */}
+        {/* Left: Brand Identification + Interactive Tutorial & How to Play Buttons */}
         <div
           className="hud-interactive"
-          style={{ display: "flex", alignItems: "center", gap: "8px" }}
+          style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}
         >
           <div
             className="brutalist-block"
-            style={{ padding: "8px 13px", display: "flex", gap: "10px", alignItems: "center" }}
+            style={{
+              padding: "8px 14px",
+              display: "flex",
+              gap: "10px",
+              alignItems: "center",
+            }}
           >
             <span
               style={{
                 display: "inline-block",
-                width: "10px",
-                height: "10px",
+                width: "11px",
+                height: "11px",
+                borderRadius: "3px",
                 background: "var(--signal-orange)",
               }}
             />
@@ -690,32 +721,43 @@ export default function ChronoHeistApp() {
               <div
                 style={{
                   fontWeight: 800,
-                  fontSize: "0.88rem",
-                  letterSpacing: "0.06em",
+                  fontSize: "0.95rem",
+                  letterSpacing: "0.02em",
                 }}
               >
                 CHRONO HEIST
               </div>
               <div
                 style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "0.64rem",
+                  fontSize: "0.7rem",
                   color: "var(--acid-volt)",
+                  fontWeight: 600,
                 }}
               >
-                RANK {profile?.clearance_rank ?? 1} //{" "}
-                {profile?.callsign ?? "OPERATIVE"}
+                3D Time-Loop Co-Op With Yourself • Rank{" "}
+                {profile?.clearance_rank ?? 1}
               </div>
             </div>
           </div>
 
           <button
             type="button"
-            className="tactical-btn"
+            className="tactical-btn tactical-btn-primary"
+            style={{ padding: "8px 14px", fontSize: "0.82rem" }}
             onClick={launchInitiationTutorial}
           >
-            SECTOR 00: TUTORIAL
+            ▶ Interactive Tutorial (4 Steps)
           </button>
+
+          {!hud.isRunning && (
+            <button
+              type="button"
+              className={`tactical-btn ${showHowToPlay ? "tactical-btn-dark" : ""}`}
+              onClick={() => setShowHowToPlay((v) => !v)}
+            >
+              {showHowToPlay ? "Hide Guide" : "? How To Play"}
+            </button>
+          )}
 
           {hud.isRunning && (
             <button
@@ -729,12 +771,12 @@ export default function ChronoHeistApp() {
                 );
               }}
             >
-              ABORT TO LOBBY
+              ✕ Exit to Lobby
             </button>
           )}
         </div>
 
-        {/* Center: 4-Loop Segmented Timeline & Briefing / Tug-of-War Score Bar */}
+        {/* Center: 4-Loop Timeline & Score Bar */}
         <div className="loop-cluster hud-interactive">
           <div className="loop-segments">
             {[1, 2, 3, 4].map((lp) => {
@@ -753,7 +795,7 @@ export default function ChronoHeistApp() {
                 : "";
               return (
                 <div key={lp} className={`loop-pill ${stateClass}`}>
-                  L{lp} • {cls.slice(0, 6)}
+                  Loop {lp} • {cls.slice(0, 6)}
                 </div>
               );
             })}
@@ -766,10 +808,10 @@ export default function ChronoHeistApp() {
                   style={{
                     color: "var(--signal-orange)",
                     fontWeight: 800,
-                    fontSize: "0.82rem",
+                    fontSize: "0.88rem",
                   }}
                 >
-                  YOU {hud.playerScore}
+                  YOU: {hud.playerScore} PTS
                 </span>
                 <span
                   style={{
@@ -778,16 +820,18 @@ export default function ChronoHeistApp() {
                     fontSize: "0.95rem",
                   }}
                 >
-                  LOOP {hud.loop}/4 • {hud.timeLeft.toFixed(1)}s
+                  {hud.isTutorial
+                    ? `TUTORIAL STEP ${hud.loop} OF 4`
+                    : `LOOP ${hud.loop}/4 • ${hud.timeLeft.toFixed(1)}s`}
                 </span>
                 <span
                   style={{
                     color: "var(--infrared-red)",
                     fontWeight: 800,
-                    fontSize: "0.82rem",
+                    fontSize: "0.88rem",
                   }}
                 >
-                  {hud.rivalScore} RIVAL
+                  TARGET: {hud.rivalScore} PTS
                 </span>
               </div>
               <div
@@ -798,32 +842,32 @@ export default function ChronoHeistApp() {
               </div>
             </div>
           ) : (
-            <div className="tug-bar-wrap" style={{ padding: "5px 12px" }}>
+            <div className="tug-bar-wrap" style={{ padding: "6px 14px" }}>
               <div
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "0.72rem",
-                  fontWeight: 800,
+                  fontSize: "0.78rem",
+                  fontWeight: 700,
                 }}
               >
                 <span style={{ color: "var(--acid-volt)" }}>
-                  FACILITY READY // 4 × 15.0s LOOPS
+                  4 Time Loops × 15s (Your Past Selves Help You!)
                 </span>
                 <span style={{ color: "var(--ink-light)" }}>
-                  TARGET:{" "}
-                  {contracts.find((c) => c.contract_tier === selectedContractTier)
-                    ?.target_score ?? 350}{" "}
-                  PTS
+                  Goal:{" "}
+                  {contracts.find(
+                    (c) => c.contract_tier === selectedContractTier
+                  )?.target_score ?? 350}{" "}
+                  Pts
                 </span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Right: Camera Angle Switcher [V], Audio Synth Mute, Dual-Currency Arcade Vault */}
+        {/* Right: Camera Angle Switcher [V], Audio Synth Mute, Wallet & Gold */}
         <div
           className="hud-interactive"
           style={{ display: "flex", alignItems: "center", gap: "8px" }}
@@ -838,7 +882,7 @@ export default function ChronoHeistApp() {
               )
             }
           >
-            CAM [V]: {hud.cameraMode}
+            🎥 Camera [V]: {hud.cameraMode}
           </button>
 
           <button
@@ -850,7 +894,7 @@ export default function ChronoHeistApp() {
               chronoSynth.setMuted(next);
             }}
           >
-            {isMuted ? "SYNTH: MUTED" : "SYNTH: LIVE"}
+            {isMuted ? "🔇 Muted" : "🔊 Sound On"}
           </button>
 
           <button
@@ -859,7 +903,7 @@ export default function ChronoHeistApp() {
             onClick={() => vaultDialogRef.current?.showModal()}
           >
             <span style={{ color: "var(--amber-gold)" }}>
-              ⚡ {profile?.chrono_gold ?? 250}G
+              🪙 {profile?.chrono_gold ?? 250} Gold
             </span>
             <span>|</span>
             <span style={{ color: "var(--acid-volt)" }}>
@@ -870,6 +914,91 @@ export default function ChronoHeistApp() {
       </header>
 
       {/* ===================================================================
+          INTERACTIVE 4-STEP TUTORIAL COACH CARD (Only During Tutorial Mode!)
+      =================================================================== */}
+      {hud.isRunning && hud.isTutorial && (
+        <section className="brutalist-bone tutorial-coach-card hud-interactive">
+          <div className="tutorial-step-pills">
+            {[
+              { step: 1, name: "1. Hold Switch" },
+              { step: 2, name: "2. Steal Vault Core" },
+              { step: 3, name: "3. Throw Core [E]" },
+              { step: 4, name: "4. Stop Rival [Space]" },
+            ].map((s) => (
+              <div
+                key={s.step}
+                className={`tutorial-step-pill ${
+                  hud.loop > s.step
+                    ? "done"
+                    : hud.loop === s.step
+                    ? "current"
+                    : ""
+                }`}
+              >
+                {hud.loop > s.step ? `✓ ${s.name}` : s.name}
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: "12px",
+            }}
+          >
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontSize: "1.06rem",
+                  fontWeight: 800,
+                  color: "var(--signal-orange)",
+                }}
+              >
+                {hud.tutorialTitle ||
+                  `STEP ${hud.loop} OF 4: FOLLOW THE GLOWING FLOOR LINE`}
+              </div>
+              <p
+                style={{
+                  fontSize: "0.88rem",
+                  lineHeight: 1.45,
+                  color: "var(--ink-dark)",
+                  marginTop: "4px",
+                  fontWeight: 600,
+                }}
+              >
+                {hud.tutorialDetail ||
+                  "Use [WASD] or [Arrow Keys] to follow the glowing orange floor line to your target."}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="tactical-btn"
+              style={{ flexShrink: 0 }}
+              onClick={() => {
+                unityRef.current?.SendMessage(
+                  "ChronoGameManager",
+                  "SkipTutorialStep"
+                );
+                canvasRef.current?.focus();
+              }}
+            >
+              Skip Step ➔
+            </button>
+          </div>
+
+          <div className="tutorial-progress-track">
+            <div
+              className="tutorial-progress-fill"
+              style={{ width: `${hud.tutorialProgress ?? 20}%` }}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* ===================================================================
           STATUS / EVENT BANNERS & CONTEXTUAL MICRO-CUES (During Match)
       =================================================================== */}
       {(hud.eventBanner || statusBanner) && (
@@ -878,58 +1007,51 @@ export default function ChronoHeistApp() {
         </div>
       )}
 
-      {hud.isRunning && hud.microCue && (
+      {hud.isRunning && !hud.isTutorial && hud.microCue && (
         <div className="micro-cue-banner">{hud.microCue}</div>
       )}
 
       {/* ===================================================================
-          IN-MATCH BOTTOM ABILITY READOUT (Minimalist 3-Slot Bar)
+          IN-MATCH BOTTOM CONTROLS BAR (Clear Human-Readable Controls)
       =================================================================== */}
       {hud.isRunning && (
         <div
           style={{
             position: "absolute",
-            bottom: "18px",
+            bottom: "16px",
             left: "50%",
             transform: "translateX(-50%)",
             display: "flex",
             gap: "10px",
             zIndex: 20,
             pointerEvents: "none",
+            flexWrap: "wrap",
+            justifyContent: "center",
           }}
         >
           <div
             className="brutalist-block"
             style={{
-              padding: "7px 14px",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.75rem",
-              borderColor: hud.dashReady
-                ? "var(--acid-volt)"
-                : "var(--ink-dark)",
+              padding: "8px 14px",
+              fontSize: "0.8rem",
+              fontWeight: 700,
             }}
           >
-            [SPACE / R-CLICK] BLADE DASH:{" "}
-            <span
-              style={{
-                color: hud.dashReady
-                  ? "var(--acid-volt)"
-                  : "var(--ink-muted)",
-              }}
-            >
-              {hud.dashReady ? "READY (RESET ON HIT)" : "RECHARGING"}
-            </span>
+            🏃 Move: <span style={{ color: "var(--acid-volt)" }}>[WASD / Arrows]</span>
           </div>
 
           <div
             className="brutalist-block"
             style={{
-              padding: "7px 14px",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.75rem",
+              padding: "8px 14px",
+              fontSize: "0.8rem",
+              fontWeight: 700,
+              borderColor: hud.carryingCore
+                ? "var(--signal-orange)"
+                : "var(--ink-dark)",
             }}
           >
-            [E / L-CLICK] THROW PASS:{" "}
+            ☄️ Throw Core:{" "}
             <span
               style={{
                 color: hud.carryingCore
@@ -937,134 +1059,175 @@ export default function ChronoHeistApp() {
                   : "var(--ink-muted)",
               }}
             >
-              {hud.carryingCore ? "CORE LOCKED — FIRE!" : "NO CORE"}
+              {hud.carryingCore
+                ? "[E / Left-Click] READY TO THROW!"
+                : "Pick up a Core first"}
             </span>
           </div>
 
           <div
             className="brutalist-block"
             style={{
-              padding: "7px 14px",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.75rem",
+              padding: "8px 14px",
+              fontSize: "0.8rem",
+              fontWeight: 700,
+              borderColor: hud.dashReady
+                ? "var(--acid-volt)"
+                : "var(--ink-dark)",
             }}
           >
-            [F / Q] {hud.rigClass.replace("_", " ").toUpperCase()} GADGET:{" "}
+            ⚔️ Knock Out Rival:{" "}
             <span
               style={{
-                color: hud.gadgetReady
-                  ? "var(--acid-volt)"
-                  : "var(--ink-muted)",
+                color: hud.dashReady ? "var(--acid-volt)" : "var(--ink-muted)",
               }}
             >
-              {hud.gadgetReady ? "ARMED" : "COOLDOWN"}
+              {hud.dashReady ? "[SPACE / Right-Click] READY" : "Recharging…"}
+            </span>
+          </div>
+
+          <div
+            className="brutalist-block"
+            style={{
+              padding: "8px 14px",
+              fontSize: "0.8rem",
+              fontWeight: 700,
+            }}
+          >
+            ⚡ Class Gadget:{" "}
+            <span
+              style={{
+                color: hud.gadgetReady ? "var(--acid-volt)" : "var(--ink-muted)",
+              }}
+            >
+              {hud.gadgetReady ? "[Q / F] READY" : "Cooldown"}
             </span>
           </div>
         </div>
       )}
 
       {/* ===================================================================
-          FIRST-BOOT PLAYABLE TUTORIAL PROMPT (Sector 00: Initiation Protocol)
+          PLAIN-ENGLISH "WHAT IS CHRONO HEIST?" 3-STEP VISUAL GUIDE (In Lobby)
       =================================================================== */}
-      {!hud.isRunning && showInitiationPrompt && (
-        <div
-          className="brutalist-bone hud-interactive"
-          style={{
-            position: "absolute",
-            top: "84px",
-            left: "16px",
-            maxWidth: "375px",
-            padding: "12px 14px",
-            zIndex: 28,
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-          }}
-        >
+      {!hud.isRunning && showHowToPlay && (
+        <aside className="brutalist-bone how-to-play-card hud-interactive">
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.7rem",
-              fontWeight: 800,
-              color: "var(--signal-orange)",
             }}
           >
-            <span>FIRST-TIME OPERATIVE DETECTED</span>
-            <span>60s PLAYABLE RUN</span>
-          </div>
-          <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
-            Master Temporal Alley-Oops & Causal Laser Wipeouts in 4 Guided
-            Loops
-          </div>
-          <div
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.71rem",
-              color: "var(--ink-muted)",
-            }}
-          >
-            REWARD: +300 CHRONO GOLD + UNLOCKS TECH HACKER RIG
-          </div>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              type="button"
-              className="tactical-btn tactical-btn-primary"
-              onClick={launchInitiationTutorial}
-            >
-              PLAY SECTOR 00 TUTORIAL
-            </button>
+            <div>
+              <div
+                style={{
+                  fontSize: "0.74rem",
+                  fontWeight: 800,
+                  color: "var(--signal-orange)",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                WHAT THIS GAME IS ABOUT
+              </div>
+              <h2 style={{ fontSize: "1.15rem", fontWeight: 800 }}>
+                Pull Off a Heist by Teaming Up With Your Past Self
+              </h2>
+            </div>
             <button
               type="button"
               className="tactical-btn"
-              onClick={() => {
-                localStorage.setItem("chrono_heist_tutorial_done", "1");
-                setShowInitiationPrompt(false);
-                setTourStep(1);
-              }}
+              style={{ padding: "4px 10px", fontSize: "0.75rem" }}
+              onClick={() => setShowHowToPlay(false)}
             >
-              SKIP TO LOBBY
+              ✕
             </button>
           </div>
-        </div>
+
+          <p
+            style={{
+              fontSize: "0.84rem",
+              lineHeight: 1.4,
+              color: "var(--ink-muted)",
+              fontWeight: 600,
+            }}
+          >
+            A match lasts <strong>4 Time Loops</strong> (15 seconds each). Every
+            move you make is recorded and replayed by your{" "}
+            <strong>Past Self</strong> when time rewinds:
+          </p>
+
+          <div className="how-step-row">
+            <div className="how-step-badge">1</div>
+            <div style={{ fontSize: "0.82rem", lineHeight: 1.38 }}>
+              <strong>Loop 1 — Hold the Door Switch:</strong> Walk onto the{" "}
+              <strong style={{ color: "#0d8a4b" }}>🟢 Green Door Switch</strong>{" "}
+              on the left to power open the{" "}
+              <strong style={{ color: "var(--infrared-red)" }}>
+                🔴 Red Laser Vault Door
+              </strong>
+              .
+            </div>
+          </div>
+
+          <div className="how-step-row">
+            <div className="how-step-badge">2</div>
+            <div style={{ fontSize: "0.82rem", lineHeight: 1.38 }}>
+              <strong>Loop 2 — Co-Op With Past You:</strong> Time rewinds!{" "}
+              <strong>Past You (Loop 1)</strong> walks onto the switch and holds
+              the door open while <strong>You (Loop 2)</strong> run inside to
+              steal the{" "}
+              <strong style={{ color: "#b88200" }}>
+                🔒 Gold Vault Core (+350 Pts)
+              </strong>
+              !
+            </div>
+          </div>
+
+          <div className="how-step-row">
+            <div className="how-step-badge">3</div>
+            <div style={{ fontSize: "0.82rem", lineHeight: 1.38 }}>
+              <strong>Loops 3 & 4 — Throw Cores & Stop Rivals:</strong> Press{" "}
+              <strong>[E]</strong> to throw Cores to the{" "}
+              <strong style={{ color: "var(--signal-orange)" }}>
+                🔶 Escape Zone
+              </strong>
+              , and press <strong>[SPACE]</strong> to knock out{" "}
+              <strong style={{ color: "var(--infrared-red)" }}>
+                🔴 Red Rival Thieves
+              </strong>
+              !
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="tactical-btn tactical-btn-primary"
+              style={{ flex: 1, justifyContent: "center" }}
+              onClick={launchInitiationTutorial}
+            >
+              ▶ Play 4-Step Interactive Tutorial
+            </button>
+            <button
+              type="button"
+              className="tactical-btn tactical-btn-dark"
+              onClick={() => launchHeist()}
+            >
+              ⚡ Start Heist Now
+            </button>
+          </div>
+        </aside>
       )}
 
       {/* ===================================================================
-          LOBBY BOTTOM COMMAND DOCK (Leaves 3D Facility Unobstructed)
+          CLEAN LOBBY BOTTOM COMMAND DOCK
       =================================================================== */}
       {!hud.isRunning && (
         <section className="lobby-bottom-dock">
-          {/* Progressive 3-Step Tethered First-Time UI Guide */}
-          {tourStep > 0 && (
-            <div style={{ display: "flex", justifyContent: "flex-start" }}>
-              <div className="tether-tour-pill hud-interactive">
-                <span>
-                  {tourStep === 1 &&
-                    "STEP 1/3: CLICK [3D CREW & ARMORY] BELOW TO INSPECT YOUR 4 TIME-LOOP PODS"}
-                  {tourStep === 2 &&
-                    "STEP 2/3: CLICK A RIG CLASS TO ASSIGN IT TO LOOP L1 ON THE 3D TURNTABLE"}
-                  {tourStep === 3 &&
-                    "STEP 3/3: CREW LOCKED! CLICK [DEPLOY HEIST] TO RAID THE VAULT"}
-                </span>
-                <button
-                  type="button"
-                  className="tactical-btn"
-                  style={{ padding: "3px 8px", fontSize: "0.68rem" }}
-                  onClick={() => setTourStep(0)}
-                >
-                  DISMISS
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Main Tactical Control Bar */}
           <div
             className="brutalist-bone hud-interactive"
             style={{
-              padding: "10px 14px",
+              padding: "12px 16px",
               display: "flex",
               flexDirection: "column",
               gap: "10px",
@@ -1080,7 +1243,7 @@ export default function ChronoHeistApp() {
                 gap: "8px",
               }}
             >
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                 <button
                   type="button"
                   className={`tactical-btn ${
@@ -1096,7 +1259,7 @@ export default function ChronoHeistApp() {
                     );
                   }}
                 >
-                  1. SYNDICATE CONTRACTS (FREE)
+                  🎯 Solo Heist Missions
                 </button>
 
                 <button
@@ -1114,7 +1277,7 @@ export default function ChronoHeistApp() {
                     );
                   }}
                 >
-                  2. WANTED BOUNTIES ($UDAO PVP)
+                  ⚔️ Rival PvP Bounties ($UDAO)
                 </button>
 
                 <button
@@ -1130,10 +1293,9 @@ export default function ChronoHeistApp() {
                       "SetLobbyViewMode",
                       "armory"
                     );
-                    if (tourStep === 1) setTourStep(2);
                   }}
                 >
-                  3. 3D CREW & ARMORY ({ownedItems.length} OWNED)
+                  🛡️ Customize Crew & 3D Loadout ({ownedItems.length})
                 </button>
 
                 <button
@@ -1151,7 +1313,7 @@ export default function ChronoHeistApp() {
                     );
                   }}
                 >
-                  4. DAILY ANOMALY & STREAK
+                  🔥 Daily Mutator & Rewards
                 </button>
               </div>
 
@@ -1159,9 +1321,11 @@ export default function ChronoHeistApp() {
                 <button
                   type="button"
                   className="tactical-btn"
-                  onClick={() => handleCopyChallengeLink(selectedBountyId || undefined)}
+                  onClick={() =>
+                    handleCopyChallengeLink(selectedBountyId || undefined)
+                  }
                 >
-                  SHARE CHALLENGE LINK (+2% REF)
+                  🔗 Share Challenge Link (+2% Ref)
                 </button>
 
                 <button
@@ -1171,21 +1335,21 @@ export default function ChronoHeistApp() {
                 >
                   {activeDockTab === "bounties"
                     ? selectedStakeUdao > 0
-                      ? `DEPLOY DUEL (${selectedStakeUdao} $UDAO → WIN ${(
+                      ? `⚡ Start Staked Duel (${selectedStakeUdao} $UDAO → Win ${(
                           selectedStakeUdao * 1.8
                         ).toFixed(0)} $UDAO)`
-                      : "DEPLOY FREE PVP RAID"
-                    : `DEPLOY CONTRACT TIER ${selectedContractTier}`}
+                      : "⚡ Start Free PvP Raid"
+                    : `⚡ Start Mission ${selectedContractTier}`}
                 </button>
               </div>
             </div>
 
-            {/* TAB 1: SYNDICATE CONTRACT LADDER */}
+            {/* TAB 1: SOLO HEIST MISSIONS */}
             {activeDockTab === "contracts" && (
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
                   gap: "8px",
                 }}
               >
@@ -1199,7 +1363,7 @@ export default function ChronoHeistApp() {
                       onClick={() => {
                         if (!unlocked) {
                           flashBanner(
-                            `CLEAR CONTRACT TIER ${c.contract_tier - 1} FIRST`
+                            `Beat Mission ${c.contract_tier - 1} first to unlock this mission!`
                           );
                           return;
                         }
@@ -1207,7 +1371,8 @@ export default function ChronoHeistApp() {
                         setSelectedContractTier(c.contract_tier);
                       }}
                       style={{
-                        padding: "8px 11px",
+                        padding: "10px 12px",
+                        borderRadius: "8px",
                         border: isSel
                           ? "2px solid var(--signal-orange)"
                           : "1.5px solid var(--ink-dark)",
@@ -1216,15 +1381,15 @@ export default function ChronoHeistApp() {
                           : "var(--bg-bone)",
                         color: isSel ? "var(--ink-light)" : "var(--ink-dark)",
                         cursor: unlocked ? "pointer" : "not-allowed",
+                        opacity: unlocked ? 1 : 0.65,
                         display: "flex",
                         flexDirection: "column",
-                        gap: "3px",
+                        gap: "4px",
                       }}
                     >
                       <div
                         style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "0.66rem",
+                          fontSize: "0.72rem",
                           color: isSel
                             ? "var(--acid-volt)"
                             : unlocked
@@ -1233,21 +1398,23 @@ export default function ChronoHeistApp() {
                           fontWeight: 800,
                         }}
                       >
-                        {unlocked ? c.sector_name : `[LOCKED — TIER ${c.contract_tier}]`} // TARGET {c.target_score} PTS
+                        {unlocked
+                          ? `Mission ${c.contract_tier} • Score ${c.target_score}+ Pts`
+                          : `🔒 Locked (Beat Mission ${c.contract_tier - 1})`}
                       </div>
-                      <div style={{ fontWeight: 800, fontSize: "0.82rem" }}>
+                      <div style={{ fontWeight: 800, fontSize: "0.88rem" }}>
                         {c.title}
                       </div>
                       <div
                         style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "0.68rem",
+                          fontSize: "0.74rem",
                           color: isSel ? "var(--ink-light)" : "var(--ink-muted)",
                         }}
                       >
-                        BOSS: {c.boss_callsign} • +{c.reward_gold}G
+                        Rival Boss: {c.boss_callsign} • Reward: +{c.reward_gold}{" "}
+                        Gold
                         {c.unlocks_class
-                          ? ` • UNLOCKS ${c.unlocks_class
+                          ? ` + Unlocks ${c.unlocks_class
                               .replace("_", " ")
                               .toUpperCase()}`
                           : ""}
@@ -1274,13 +1441,13 @@ export default function ChronoHeistApp() {
                     alignItems: "center",
                     flexWrap: "wrap",
                     gap: "8px",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "0.74rem",
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
                   }}
                 >
                   <div>
-                    SELECT RIVAL RECORDED 4-LOOP ECHOES TO SHATTER (90% WINNER
-                    POT / 8% TREASURY / 2% REFERRAL):
+                    Raid a real player&apos;s recorded 4-loop heist crew and beat
+                    their score (Winner takes 90% of pot):
                   </div>
                   <div style={{ display: "flex", gap: "6px" }}>
                     {[0, 10, 25].map((stk) => (
@@ -1290,12 +1457,14 @@ export default function ChronoHeistApp() {
                         className={`tactical-btn ${
                           selectedStakeUdao === stk ? "tactical-btn-dark" : ""
                         }`}
-                        style={{ padding: "4px 10px" }}
+                        style={{ padding: "5px 11px", fontSize: "0.76rem" }}
                         onClick={() => setSelectedStakeUdao(stk)}
                       >
                         {stk === 0
-                          ? "FREE PRACTICE RAID"
-                          : `${stk} $UDAO → WIN ${(stk * 1.8).toFixed(0)} $UDAO`}
+                          ? "Free Practice Raid"
+                          : `Stake ${stk} $UDAO → Win ${(stk * 1.8).toFixed(
+                              0
+                            )} $UDAO`}
                       </button>
                     ))}
                   </div>
@@ -1304,7 +1473,7 @@ export default function ChronoHeistApp() {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
                     gap: "8px",
                   }}
                 >
@@ -1320,6 +1489,7 @@ export default function ChronoHeistApp() {
                         }}
                         style={{
                           padding: "10px 12px",
+                          borderRadius: "8px",
                           border: isSel
                             ? "2px solid var(--signal-orange)"
                             : "1.5px solid var(--ink-dark)",
@@ -1337,33 +1507,36 @@ export default function ChronoHeistApp() {
                           style={{
                             display: "flex",
                             justifyContent: "space-between",
-                            fontFamily: "var(--font-mono)",
-                            fontSize: "0.7rem",
+                            fontSize: "0.74rem",
                             fontWeight: 800,
                           }}
                         >
                           <span style={{ color: "var(--infrared-red)" }}>
-                            {"★".repeat(Math.max(1, b.wanted_stars))} WANTED
-                            RAIDER
+                            {"★".repeat(Math.max(1, b.wanted_stars))} Wanted
+                            Raider
                           </span>
                           <span style={{ color: "var(--amber-gold)" }}>
                             {Number(b.stake_udao) > 0
-                              ? `${b.stake_udao} $UDAO STAKE`
-                              : "FREE BOUNTY"}
+                              ? `${b.stake_udao} $UDAO Stake`
+                              : "Free Bounty"}
                           </span>
                         </div>
-                        <div style={{ fontWeight: 700, fontSize: "0.88rem" }}>
-                          {b.raider_callsign} // BENCHMARK: {b.raider_score} PTS
+                        <div style={{ fontWeight: 800, fontSize: "0.9rem" }}>
+                          {b.raider_callsign} • Score to Beat: {b.raider_score}{" "}
+                          Pts
                         </div>
                         <div
                           style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: "0.68rem",
+                            fontSize: "0.72rem",
+                            opacity: 0.85,
                           }}
                         >
-                          CREW:{" "}
+                          Crew:{" "}
                           {(b.raider_crew || [])
-                            .map((c, idx) => `L${idx + 1}:${c.slice(0, 4).toUpperCase()}`)
+                            .map(
+                              (c, idx) =>
+                                `L${idx + 1}: ${c.replace("_", " ")}`
+                            )
                             .join(" • ")}
                         </div>
                       </div>
@@ -1412,7 +1585,7 @@ export default function ChronoHeistApp() {
                             );
                           }}
                         >
-                          POD L{slot + 1}:{" "}
+                          Loop {slot + 1}:{" "}
                           {assigned.replace("_", " ").toUpperCase()}
                         </button>
                       );
@@ -1420,13 +1593,13 @@ export default function ChronoHeistApp() {
                   </div>
 
                   {/* Category Switcher */}
-                  <div style={{ display: "flex", gap: "6px" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                     {(
                       [
-                        ["crew_class", "LOOP CLASSES"],
-                        ["skin", "3D CHASSIS SKINS"],
-                        ["weapon", "HAND_R WEAPONS"],
-                        ["echo_shader", "ECHO SHADERS"],
+                        ["crew_class", "Operative Classes"],
+                        ["skin", "3D Armor Skins"],
+                        ["weapon", "Melee Weapons"],
+                        ["echo_shader", "Echo Trail Colors"],
                       ] as const
                     ).map(([catKey, label]) => (
                       <button
@@ -1435,7 +1608,7 @@ export default function ChronoHeistApp() {
                         className={`tactical-btn ${
                           armoryCategory === catKey ? "tactical-btn-dark" : ""
                         }`}
-                        style={{ padding: "5px 10px" }}
+                        style={{ padding: "6px 12px" }}
                         onClick={() => setArmoryCategory(catKey)}
                       >
                         {label}
@@ -1474,6 +1647,7 @@ export default function ChronoHeistApp() {
                           onClick={() => handleSelectCatalogItem(item)}
                           style={{
                             padding: "10px 12px",
+                            borderRadius: "8px",
                             border: isEquipped
                               ? "2px solid var(--signal-orange)"
                               : "1.5px solid var(--ink-dark)",
@@ -1493,8 +1667,7 @@ export default function ChronoHeistApp() {
                             style={{
                               display: "flex",
                               justifyContent: "space-between",
-                              fontFamily: "var(--font-mono)",
-                              fontSize: "0.68rem",
+                              fontSize: "0.72rem",
                               fontWeight: 800,
                             }}
                           >
@@ -1506,27 +1679,27 @@ export default function ChronoHeistApp() {
                               }}
                             >
                               {isEquipped
-                                ? "ACTIVE ON RIG"
+                                ? "✓ Equipped"
                                 : isOwned
-                                ? "OWNED — CLICK TO EQUIP"
+                                ? "Owned — Click to Equip"
                                 : item.cost_udao > 0
-                                ? `UNLOCK: ${item.cost_udao} $UDAO`
-                                : `UNLOCK: ${item.cost_gold} GOLD`}
+                                ? `Unlock: ${item.cost_udao} $UDAO`
+                                : `Unlock: ${item.cost_gold} Gold`}
                             </span>
-                            <span>RANK {item.required_rank}+</span>
+                            <span>Rank {item.required_rank}+</span>
                           </div>
-                          <div style={{ fontWeight: 700, fontSize: "0.84rem" }}>
+                          <div style={{ fontWeight: 800, fontSize: "0.88rem" }}>
                             {item.name}
                           </div>
                           <div
                             style={{
-                              fontFamily: "var(--font-mono)",
-                              fontSize: "0.68rem",
+                              fontSize: "0.74rem",
                               lineHeight: 1.35,
+                              opacity: 0.9,
                             }}
                           >
                             {item.passive_desc
-                              ? `${item.passive_desc} • ${item.gadget_desc} (${item.tradeoff_desc})`
+                              ? `${item.passive_desc} • ${item.gadget_desc}`
                               : item.description}
                           </div>
                         </div>
@@ -1548,7 +1721,8 @@ export default function ChronoHeistApp() {
                 {/* 24h Rotating Daily Anomaly Seed */}
                 <div
                   style={{
-                    padding: "10px 12px",
+                    padding: "12px 14px",
+                    borderRadius: "8px",
                     border: "1.5px solid var(--ink-dark)",
                     background: "var(--bg-carbon)",
                     color: "var(--ink-light)",
@@ -1561,27 +1735,25 @@ export default function ChronoHeistApp() {
                   <div>
                     <div
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "0.68rem",
+                        fontSize: "0.72rem",
                         color: "var(--acid-volt)",
                         fontWeight: 800,
                       }}
                     >
-                      24H ROTATING GLOBAL MUTATOR
+                      24-HOUR SPECIAL RULE HEIST
                     </div>
-                    <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
-                      ANOMALY // RICOCHET OVERDRIVE
+                    <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>
+                      Daily Mutator: Ricochet Overdrive
                     </div>
                     <div
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "0.7rem",
+                        fontSize: "0.76rem",
                         color: "var(--bg-putty)",
                         marginTop: "4px",
                       }}
                     >
-                      +35% Throw Speed, +18% Operative Velocity & 2.5× Temporal
-                      Alley-Oop Bonus
+                      +35% Core Throw Speed, +18% Sprint Speed & 2.5× Throw
+                      Bonus Points!
                     </div>
                   </div>
                   <button
@@ -1589,14 +1761,15 @@ export default function ChronoHeistApp() {
                     className="tactical-btn tactical-btn-primary"
                     onClick={() => launchHeist("contract", true)}
                   >
-                    DEPLOY INTO DAILY ANOMALY
+                    ⚡ Play Daily Mutator Heist
                   </button>
                 </div>
 
-                {/* 7-Day Login Streak & 3 Daily Directives */}
+                {/* 7-Day Login Streak & Daily Goals */}
                 <div
                   style={{
-                    padding: "10px 12px",
+                    padding: "12px 14px",
+                    borderRadius: "8px",
                     border: "1.5px solid var(--ink-dark)",
                     background: "var(--bg-putty)",
                     display: "flex",
@@ -1608,42 +1781,41 @@ export default function ChronoHeistApp() {
                   <div>
                     <div
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "0.68rem",
+                        fontSize: "0.72rem",
                         fontWeight: 800,
                         color: "var(--signal-orange)",
                       }}
                     >
-                      DAILY SYNDICATE SUPPLY & DIRECTIVES
+                      DAILY LOGIN & BONUS GOALS
                     </div>
                     <div
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "0.72rem",
+                        fontSize: "0.78rem",
                         marginTop: "4px",
+                        lineHeight: 1.45,
                       }}
                     >
-                      • Land Temporal Alley-Oops ({profile?.alley_oops_landed ?? 0}
+                      • Throw & Catch Passes ({profile?.alley_oops_landed ?? 0}
                       /2)
-                      <br />• Trigger Paradox Shatters (
+                      <br />• Knock Out Rival Thieves (
                       {profile?.paradoxes_triggered ?? 0}/2)
-                      <br />• Active Streak: DAY {profile?.login_streak ?? 1}
+                      <br />• Login Streak: Day {profile?.login_streak ?? 1}
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "6px" }}>
+                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                     <button
                       type="button"
                       className="tactical-btn"
                       onClick={() => handleClaimDaily("streak")}
                     >
-                      CLAIM DAY {profile?.login_streak ?? 1} DROP (+150G)
+                      Claim Day {profile?.login_streak ?? 1} Bonus (+150 Gold)
                     </button>
                     <button
                       type="button"
                       className="tactical-btn tactical-btn-dark"
                       onClick={() => handleClaimDaily("directives")}
                     >
-                      CLAIM DIRECTIVE CACHE (+350G)
+                      Claim Goal Cache (+350 Gold)
                     </button>
                   </div>
                 </div>
@@ -1651,15 +1823,15 @@ export default function ChronoHeistApp() {
                 {/* Daily Anomaly Leaderboard */}
                 <div
                   style={{
-                    padding: "10px 12px",
+                    padding: "12px 14px",
+                    borderRadius: "8px",
                     border: "1.5px solid var(--ink-dark)",
                     background: "var(--bg-putty)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "0.72rem",
+                    fontSize: "0.78rem",
                   }}
                 >
                   <div style={{ fontWeight: 800, marginBottom: "6px" }}>
-                    TODAY&apos;S TOP ANOMALY TIMELINES
+                    🏆 Today&apos;s Top Heist Scores
                   </div>
                   {anomalyLeaders.slice(0, 4).map((row, idx) => (
                     <div
@@ -1667,7 +1839,7 @@ export default function ChronoHeistApp() {
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
-                        padding: "2px 0",
+                        padding: "3px 0",
                         borderBottom: "1px solid rgba(20,20,19,0.12)",
                       }}
                     >
@@ -1675,7 +1847,7 @@ export default function ChronoHeistApp() {
                         #{idx + 1} {row.callsign}
                       </span>
                       <span style={{ fontWeight: 800 }}>
-                        {row.best_score} PTS
+                        {row.best_score} Pts
                       </span>
                     </div>
                   ))}
@@ -1699,7 +1871,7 @@ export default function ChronoHeistApp() {
             transform: "translate(-50%, -50%)",
             maxWidth: "480px",
             width: "calc(100% - 32px)",
-            padding: "20px",
+            padding: "22px",
             zIndex: 40,
             display: "flex",
             flexDirection: "column",
@@ -1708,55 +1880,52 @@ export default function ChronoHeistApp() {
         >
           <div
             style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.75rem",
+              fontSize: "0.8rem",
               fontWeight: 800,
               color: settlementModal.won
                 ? "var(--signal-orange)"
                 : "var(--infrared-red)",
             }}
           >
-            {settlementModal.won ? "MISSION SUCCESS" : "TIMELINE DEFENDED"}
+            {settlementModal.won ? "🎉 HEIST SUCCESS!" : "⚠️ HEIST REPELLED"}
           </div>
-          <h2 style={{ fontSize: "1.25rem", fontWeight: 800 }}>
+          <h2 style={{ fontSize: "1.3rem", fontWeight: 800 }}>
             {settlementModal.outcome}
           </h2>
 
           <div
             className="brutalist-block"
             style={{
-              padding: "12px",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.78rem",
+              padding: "14px",
+              fontSize: "0.84rem",
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
               gap: "8px",
             }}
           >
             <div>
-              YOUR SCORE:{" "}
+              Your Score:{" "}
               <strong style={{ color: "var(--acid-volt)" }}>
-                {settlementModal.player_score} PTS
+                {settlementModal.player_score} Pts
               </strong>
             </div>
             <div>
-              RIVAL BENCHMARK: <strong>{settlementModal.rival_score} PTS</strong>
+              Target Score: <strong>{settlementModal.rival_score} Pts</strong>
             </div>
             <div>
-              CHRONO GOLD:{" "}
+              Gold Earned:{" "}
               <strong style={{ color: "var(--amber-gold)" }}>
-                +{settlementModal.gold_earned} GOLD
+                +{settlementModal.gold_earned} Gold
               </strong>
             </div>
             <div>
-              CLEARANCE XP: <strong>+{settlementModal.xp_earned} XP</strong>
+              XP Earned: <strong>+{settlementModal.xp_earned} XP</strong>
             </div>
             {settlementModal.udao_delta !== 0 && (
               <div style={{ gridColumn: "1 / -1", color: "var(--acid-volt)" }}>
-                SESSION $UDAO SETTLEMENT:{" "}
-                {settlementModal.udao_delta > 0 ? "+" : ""}
-                {settlementModal.udao_delta.toFixed(2)} $UDAO (90% WINNER / 8%
-                TREASURY / 2% REFERRAL)
+                $UDAO Settlement: {settlementModal.udao_delta > 0 ? "+" : ""}
+                {settlementModal.udao_delta.toFixed(2)} $UDAO (90% Winner / 8%
+                Treasury / 2% Referral)
               </div>
             )}
             {settlementModal.unlocked_class && (
@@ -1767,7 +1936,7 @@ export default function ChronoHeistApp() {
                   fontWeight: 800,
                 }}
               >
-                NEW CREW CLASS UNLOCKED:{" "}
+                🔓 Unlocked New Class:{" "}
                 {settlementModal.unlocked_class.replace("_", " ").toUpperCase()}
               </div>
             )}
@@ -1779,7 +1948,7 @@ export default function ChronoHeistApp() {
               className="tactical-btn tactical-btn-primary"
               onClick={() => launchHeist()}
             >
-              REMATCH / DEPLOY AGAIN
+              ⚡ Play Next Heist Mission
             </button>
             <button
               type="button"
@@ -1792,14 +1961,16 @@ export default function ChronoHeistApp() {
                 );
               }}
             >
-              RETURN TO 3D ARMORY
+              Back to Lobby
             </button>
             <button
               type="button"
               className="tactical-btn"
-              onClick={() => handleCopyChallengeLink(selectedBountyId || undefined)}
+              onClick={() =>
+                handleCopyChallengeLink(selectedBountyId || undefined)
+              }
             >
-              SHARE CHALLENGE URL
+              🔗 Share Challenge Link
             </button>
           </div>
         </div>
@@ -1820,16 +1991,15 @@ export default function ChronoHeistApp() {
             <div>
               <div
                 style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "0.7rem",
+                  fontSize: "0.74rem",
                   color: "var(--signal-orange)",
                   fontWeight: 800,
                 }}
               >
-                POLYGON MAINNET (CHAIN ID 137) // ARCADE VAULT
+                POLYGON MAINNET (CHAIN ID 137) • ARCADE VAULT
               </div>
-              <h3 style={{ fontSize: "1.1rem", fontWeight: 800 }}>
-                GAS-FREE SESSION $UDAO VAULT
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 800 }}>
+                Gas-Free Session $UDAO Vault
               </h3>
             </div>
             <button
@@ -1837,47 +2007,52 @@ export default function ChronoHeistApp() {
               className="tactical-btn"
               onClick={() => vaultDialogRef.current?.close()}
             >
-              CLOSE [ESC]
+              Close [ESC]
             </button>
           </div>
 
           <div
             className="brutalist-block"
             style={{
-              padding: "12px",
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.76rem",
+              padding: "14px",
+              fontSize: "0.82rem",
               display: "flex",
               flexDirection: "column",
               gap: "6px",
             }}
           >
             <div>
-              OPERATIVE WALLET: <strong>{formatShortWallet(wallet)}</strong>{" "}
-              {isLiveWallet ? "(POLYGON CONNECTED)" : "(SESSION OPERATIVE)"}
+              Operative Wallet: <strong>{formatShortWallet(wallet)}</strong>{" "}
+              {isLiveWallet ? "(Polygon Connected)" : "(Guest Session)"}
             </div>
             <div>
-              $UDAO CONTRACT:{" "}
+              $UDAO Token Contract:{" "}
               <span style={{ color: "var(--ink-muted)" }}>
                 {UDAO_CONTRACT_ADDRESS.slice(0, 14)}…
               </span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginTop: "4px",
+              }}
+            >
               <span>
-                SESSION VAULT:{" "}
+                Session Vault:{" "}
                 <strong style={{ color: "var(--acid-volt)" }}>
                   {Number(profile?.session_udao ?? 0).toFixed(2)} $UDAO
                 </strong>
               </span>
               <span>
-                CHRONO GOLD:{" "}
+                Chrono Gold:{" "}
                 <strong style={{ color: "var(--amber-gold)" }}>
-                  {profile?.chrono_gold ?? 250} GOLD
+                  {profile?.chrono_gold ?? 250} Gold
                 </strong>
               </span>
             </div>
             <div>
-              REFERRAL EARNINGS (2% LIFETIME):{" "}
+              Referral Earnings (2% Lifetime):{" "}
               <strong>
                 {Number(profile?.referral_earnings_udao ?? 0).toFixed(2)} $UDAO
               </strong>
@@ -1903,8 +2078,8 @@ export default function ChronoHeistApp() {
               }}
             >
               {isLiveWallet
-                ? "POLYGON WALLET LINKED"
-                : "CONNECT POLYGON WALLET"}
+                ? "✓ Polygon Wallet Linked"
+                : "Connect Polygon Wallet"}
             </button>
 
             <input
@@ -1915,10 +2090,10 @@ export default function ChronoHeistApp() {
               onChange={(e) => setDepositAmount(e.target.value)}
               style={{
                 width: "90px",
-                padding: "7px 10px",
-                fontFamily: "var(--font-mono)",
+                padding: "8px 10px",
+                borderRadius: "6px",
                 fontWeight: 700,
-                border: "1.5px solid var(--ink-dark)",
+                border: "2px solid var(--ink-dark)",
                 background: "var(--bg-putty)",
               }}
             />
@@ -1930,7 +2105,7 @@ export default function ChronoHeistApp() {
                 handleVaultDeposit(Math.max(5, Number(depositAmount) || 50))
               }
             >
-              DEPOSIT $UDAO TO SESSION
+              Deposit $UDAO
             </button>
 
             <button
@@ -1938,22 +2113,20 @@ export default function ChronoHeistApp() {
               className="tactical-btn"
               onClick={handleVaultWithdraw}
             >
-              WITHDRAW ALL
+              Withdraw All
             </button>
           </div>
 
           <div
             style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.68rem",
+              fontSize: "0.75rem",
               color: "var(--ink-muted)",
               lineHeight: 1.4,
             }}
           >
-            ECONOMIC GUARDRAIL: Free Contract & Practice modes award strictly
-            off-chain Chrono Gold (zero unbacked $UDAO inflation). Staked PvP
-            Duels are 100% player-funded: 90% to Winner, 8% Protocol Treasury,
-            2% Referrer.
+            Free Solo Missions award off-chain Chrono Gold. Staked PvP Duels are
+            100% player-funded: 90% to the Winner, 8% to Protocol Treasury, and
+            2% to your Referrer.
           </div>
         </div>
       </dialog>
