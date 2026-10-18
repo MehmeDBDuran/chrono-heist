@@ -1,0 +1,24 @@
+# Next.js & Node
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env.*.local
+.vercel/
+*.tsbuildinfo
+assets-raw/
+
+# Unity generated caches
+unity-project/[Ll]ibrary/
+unity-project/[Tt]emp/
+unity-project/[Oo]bj/
+unity-project/[Bb]uild/
+unity-project/[Bb]uilds/
+unity-project/[Ll]ogs/
+unity-project/[Uu]ser[Ss]ettings/
+unity-project/*.csproj
+unity-project/*.sln
+
+# OS
+.DS_Store

@@ -1,0 +1,312 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Space+Grotesk:wght@600;700&display=swap');
+
+:root {
+  --bg-putty: #eae6df;
+  --bg-bone: #f4f1ea;
+  --bg-carbon: #141413;
+  --bg-carbon-elevated: #1e1e1c;
+  --ink-dark: #141413;
+  --ink-light: #f4f1ea;
+  --ink-muted: #6e6a63;
+  --hairline-dark: #141413;
+  --hairline-light: rgba(244, 241, 234, 0.22);
+  --signal-orange: #ff4d00;
+  --acid-volt: #c8ff00;
+  --infrared-red: #e61919;
+  --amber-gold: #ffb800;
+  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100dvh;
+  overflow: clip;
+  background-color: var(--bg-putty);
+  color: var(--ink-dark);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Full-Bleed 3D Viewport */
+.chrono-viewport {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  overflow: clip;
+  background: var(--bg-putty);
+}
+
+.unity-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: var(--bg-putty);
+}
+
+/* Industrial Brutalist Telemetry Blocks */
+.hud-top-bar {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  pointer-events: none;
+  z-index: 20;
+  gap: 12px;
+}
+
+.hud-interactive {
+  pointer-events: auto;
+}
+
+.brutalist-block {
+  background: var(--bg-carbon);
+  color: var(--ink-light);
+  border: 1.5px solid var(--ink-dark);
+  box-shadow: 3px 3px 0px var(--ink-dark);
+}
+
+.brutalist-bone {
+  background: var(--bg-bone);
+  color: var(--ink-dark);
+  border: 1.5px solid var(--ink-dark);
+  box-shadow: 3px 3px 0px var(--ink-dark);
+}
+
+.tactical-btn {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 8px 13px;
+  border: 1.5px solid var(--ink-dark);
+  background: var(--bg-bone);
+  color: var(--ink-dark);
+  cursor: pointer;
+  transition: transform 0.08s ease, background-color 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.tactical-btn:hover {
+  background: var(--acid-volt);
+  transform: translate(-1px, -1px);
+}
+
+.tactical-btn:active {
+  transform: translate(1px, 1px);
+}
+
+.tactical-btn-primary {
+  background: var(--signal-orange);
+  color: var(--ink-light);
+  border-color: var(--ink-dark);
+  font-size: 0.88rem;
+  padding: 11px 22px;
+  box-shadow: 3px 3px 0px var(--ink-dark);
+}
+
+.tactical-btn-primary:hover {
+  background: #ff621f;
+  color: var(--ink-light);
+}
+
+.tactical-btn-dark {
+  background: var(--bg-carbon);
+  color: var(--ink-light);
+}
+
+.tactical-btn-dark:hover {
+  background: #292926;
+  color: var(--acid-volt);
+}
+
+/* Segmented 4-Loop Timeline HUD */
+.loop-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 320px;
+}
+
+.loop-segments {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  width: 100%;
+}
+
+.loop-pill {
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: center;
+  border: 1.5px solid var(--ink-dark);
+  background: var(--bg-bone);
+  color: var(--ink-muted);
+}
+
+.loop-pill.done {
+  background: var(--ink-dark);
+  color: var(--acid-volt);
+}
+
+.loop-pill.active {
+  background: var(--signal-orange);
+  color: var(--ink-light);
+}
+
+/* Tug-of-War Score Bar */
+.tug-bar-wrap {
+  width: 100%;
+  background: var(--bg-carbon);
+  border: 1.5px solid var(--ink-dark);
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tug-scores {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tug-track {
+  width: 100%;
+  height: 7px;
+  background: var(--infrared-red);
+  position: relative;
+  overflow: clip;
+}
+
+.tug-fill-you {
+  height: 100%;
+  background: var(--signal-orange);
+  width: calc(var(--you-pct, 50) * 1%);
+  transition: width 0.15s ease-out;
+}
+
+/* Tethered First-Time User Tour Pill (persistent-app-tours pattern) */
+.tether-tour-pill {
+  position: relative;
+  background: var(--signal-orange);
+  color: var(--ink-light);
+  border: 2px solid var(--ink-dark);
+  box-shadow: 4px 4px 0px var(--ink-dark);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: pulseSlide 1.4s infinite alternate ease-in-out;
+  z-index: 35;
+}
+
+@keyframes pulseSlide {
+  from {
+    transform: translateY(0px);
+  }
+  to {
+    transform: translateY(-4px);
+  }
+}
+
+/* Scrollable Tactical Lists (modern-web-guidance Section 6) */
+.tactical-scroll-list {
+  max-block-size: 230px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+/* Bottom Lobby Dock (Leaves 75%+ of 3D Turntable Unobstructed) */
+.lobby-bottom-dock {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+/* Contextual In-Match Micro-Prompt */
+.micro-cue-banner {
+  position: absolute;
+  bottom: 74px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-carbon);
+  color: var(--ink-light);
+  border: 2px solid var(--signal-orange);
+  box-shadow: 4px 4px 0px var(--ink-dark);
+  padding: 9px 18px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  z-index: 25;
+  pointer-events: none;
+  text-align: center;
+}
+
+.event-toast-banner {
+  position: absolute;
+  top: 122px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--acid-volt);
+  color: var(--ink-dark);
+  border: 2px solid var(--ink-dark);
+  box-shadow: 4px 4px 0px var(--ink-dark);
+  padding: 8px 18px;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  z-index: 26;
+  pointer-events: none;
+}
+
+/* Native Modal Dialog */
+dialog.tactical-dialog {
+  margin: auto;
+  border: 2px solid var(--ink-dark);
+  background: var(--bg-bone);
+  color: var(--ink-dark);
+  box-shadow: 8px 8px 0px var(--ink-dark);
+  padding: 20px;
+  max-width: 520px;
+  width: calc(100% - 32px);
+}
+
+dialog.tactical-dialog::backdrop {
+  background: rgba(20, 20, 19, 0.55);
+}
