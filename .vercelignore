@@ -1,0 +1,5 @@
+unity-project/
+assets-raw/
+node_modules/
+.next/
+.git/
